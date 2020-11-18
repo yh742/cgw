@@ -1,0 +1,6 @@
+port: 8080
+mqtt:
+  server: mosquitto
+  port: 1883
+  successCode: 0x05
+  authFile: /etc/ds/auth

@@ -1,4 +1,4 @@
-package ds
+package main
 
 import (
 	"encoding/json"
@@ -25,6 +25,7 @@ func DisconnectHandler(disconnector Disconnecter) http.HandlerFunc {
 		err := json.NewDecoder(req.Body).Decode(connReq)
 		if err != nil {
 			log.Error().Msgf("error decoding json request %s", err)
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		log.Debug().Msgf("received client request, %+v", connReq)
@@ -35,7 +36,10 @@ func DisconnectHandler(disconnector Disconnecter) http.HandlerFunc {
 func startServer(cfgPath string) {
 	// read yaml configuration file and create mqtt disconnector
 	cfg := Config{}
-	cfg.Parse(cfgPath)
+	err := cfg.Parse(cfgPath)
+	if err != nil {
+		log.Fatal().Msgf("unable to parse config file, %s", err)
+	}
 	disconnecter, err := NewMQTTDisconnecter(cfg)
 	if err != nil {
 		log.Fatal().Msgf("unable to create new disconnecter, %s", err)

@@ -1,0 +1,43 @@
+version: "3.3"
+
+services:
+  ds:
+    build:
+      context: ..
+      dockerfile: dockerfile
+    networks:
+      - mqtt
+    depends_on:
+      - mosquitto
+    command: -loglevel=-1
+    ports:
+      - "8080:8080"
+    volumes:
+      - type: bind
+        source: ./config/ds/config.yaml
+        target: /etc/ds/config.yaml
+      - type: bind
+        source: ./config/ds/auth
+        target: /etc/ds/auth
+    
+  mosquitto:
+    image: eclipse-mosquitto
+    hostname: mosquitto
+    networks:
+      - mqtt
+    expose:
+      - "1883"
+      # - "9001"
+    ports:
+      - "1883:1883"
+      # - "9001:9001"
+    volumes:
+      - type: bind
+        source: ./config/mosquitto/mosquitto.conf
+        target: /mosquitto/config/mosquitto.conf
+      - type: bind
+        source: ./config/mosquitto/passwd
+        target: /etc/mosquitto/passwd
+
+networks:
+  mqtt:

@@ -1,4 +1,4 @@
-package ds
+package main
 
 import (
 	"errors"
@@ -84,6 +84,7 @@ func (handler *MQTTDisconnecter) Disconnect(req DisconnectRequest, w http.Respon
 		log.Error().Msgf("error building client ID %s", err)
 		return
 	}
+	log.Debug().Msgf("clientId created, %s", clientID)
 	handler.ConnOpts.SetClientID(clientID)
 	handler.ConnOpts.SetCleanSession(true)
 
@@ -97,7 +98,7 @@ func (handler *MQTTDisconnecter) Disconnect(req DisconnectRequest, w http.Respon
 			return
 		}
 		if cToken.ReturnCode() == handler.SuccessCode {
-			log.Debug().Msg("disconnection was successful")
+			log.Debug().Msgf("disconnection was successful %d", cToken.ReturnCode())
 			w.WriteHeader(http.StatusOK)
 			return
 		}
