@@ -1,0 +1,6 @@
+port: 9090
+mqtt:
+  server: localhost
+  port: 1883
+  successCode: 0x03
+  authFile: /etc/ds/auth
