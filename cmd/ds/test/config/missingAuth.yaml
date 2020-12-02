@@ -1,5 +1,12 @@
 port: 9090
+authType: 1
 mqtt:
-  server: localhost
+  server: localhost:1883
   successCode: 0x03
-  authFile: /etc/ds/auth
+caas:
+  server: localhost:8989
+  deleteEntityID: /delete/entity
+crs:
+  entity: sw
+  server: vzmode-rkln.mec/registration:30413
+  tokenFile: /etc/ds/crs/token

@@ -1,7 +1,10 @@
 port: 8080
+authType: 2
+caas:
+  server: localhost:8989
+  deleteEntityID: /delete/entity
 mqtt:
-  server: localhost
-  port: 1883
+  server: localhost:1883
   successCode: 0x03
   authFile: /etc/ds/auth
 crs:
@@ -9,3 +12,5 @@ crs:
   server: vzmode-rkln.mec/registration:30413
   cfgPath: /etc/ds/crs/cfg
   tokenFile: /etc/ds/crs/token
+  getToken: /token
+  updateToken: /token

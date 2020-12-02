@@ -1,5 +1,8 @@
 port: 9090
+caas:
+  server: localhost:8989
+crs:
+  server: localhost:8080
 mqtt:
-  server: localhost
-  port: 1883
+  server: localhost:1883
   successCode: 0x03

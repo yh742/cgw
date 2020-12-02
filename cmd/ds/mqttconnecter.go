@@ -40,7 +40,7 @@ func NewMQTTDisconnecter(cfg Config) (Disconnecter, error) {
 	}
 	log.Debug().Msgf("got %+v", mAuth)
 	opts := mqtt.NewClientOptions()
-	opts.AddBroker(cfg.MQTT.Server + ":" + cfg.MQTT.Port)
+	opts.AddBroker(cfg.MQTT.Server)
 	opts.SetUsername(mAuth.user)
 	opts.SetPassword(mAuth.password)
 	return &MQTTDisconnecter{
@@ -61,7 +61,7 @@ func buildClientID(connReq DisconnectRequest) (string, error) {
 		return "", errors.New("entity ID is empty")
 	}
 	// (3) check reason code, mqtt reason code should be < 163
-	if connReq.ReasonCode > byte(163) {
+	if connReq.ReasonCode > ReasonCode(163) {
 		return "", errors.New("reason code is not valid")
 	}
 	clientID := []string{

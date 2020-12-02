@@ -9,9 +9,18 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/rs/zerolog/log"
+)
+
+// AuthType represent the type of mqtt authentication used
+type AuthType byte
+
+// Different auth types
+const (
+	NoAuth    AuthType = 0x00
+	FileBased AuthType = 0x01
+	CRSBased  AuthType = 0x02
 )
 
 // MQTTAuth represents credentials needed to authorize with MQTT
@@ -48,28 +57,10 @@ func CRSCredentials(cfg Config) (MQTTAuth, error) {
 	}
 
 	// create request client to get entity ID from CRS
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-	req, err := http.NewRequest("POST", cfg.CRS.Server, bytes.NewBuffer(fBytes))
+	data, err := HTTPRequest("POST", cfg.CRS.Server, nil, bytes.NewBuffer(fBytes), http.StatusCreated)
 	if err != nil {
-		log.Error().Msgf("post request creation failed, %v", err)
-		return MQTTAuth{}, err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Error().Msgf("post request failed, %v", err)
-		return MQTTAuth{}, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 201 {
-		log.Error().Msgf("crs responded with status code, %d", resp.StatusCode)
-		return MQTTAuth{}, errors.New("crs responded with failure code")
-	}
-	data, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		log.Error().Msgf("unable to read response body, %v", err)
-		return MQTTAuth{}, errors.New("can't read response body")
+		log.Error().Msgf("CRS request failed, %v", err)
+		return MQTTAuth{}, errors.New("crs request failed")
 	}
 	idStruct := &struct{ ID string }{}
 	err = json.Unmarshal(data, idStruct)
