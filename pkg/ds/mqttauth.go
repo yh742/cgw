@@ -30,7 +30,6 @@ type MQTTAuth struct {
 }
 
 // CRSCredentials creates auth scheme based on CRS entityID
-// TODO: Probably need to add a bearer token here
 func CRSCredentials(entity string, tokenFile string, crsCfg string) (MQTTAuth, error) {
 	// read token file
 	tFile, err := os.Open(tokenFile)
@@ -58,7 +57,8 @@ func CRSCredentials(entity string, tokenFile string, crsCfg string) (MQTTAuth, e
 	}
 
 	// create request client to get entity ID from CRS
-	data, err := HTTPRequest("POST", crsRegistrationEndpoint, nil, bytes.NewBuffer(fBytes), http.StatusCreated)
+	data, err := HTTPRequest("POST", crsRegistrationEndpoint,
+		map[string]string{"Authorization": "Bearer " + string(tBytes)}, nil, bytes.NewBuffer(fBytes), http.StatusCreated)
 	if err != nil {
 		log.Error().Msgf("CRS request failed, %v", err)
 		return MQTTAuth{}, errors.New("crs request failed")

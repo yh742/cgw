@@ -15,7 +15,7 @@ func deleteEntityID(entityID string, reasonCode ReasonCode) error {
 	if _, ok := upstreamReasonCodes[reasonCode]; !ok {
 		return nil
 	}
-	data, err := HTTPRequest("GET", getTokenEndpoint, map[string]string{"entityid": entityID}, nil, http.StatusOK)
+	data, err := HTTPRequest("GET", getTokenEndpoint, nil, map[string]string{"entityid": entityID}, nil, http.StatusOK)
 	if err != nil {
 		log.Error().Msgf("unable to make request, %v", err)
 		return errors.New("unable to make request")
@@ -41,7 +41,7 @@ func deleteEntityID(entityID string, reasonCode ReasonCode) error {
 		return errors.New("unable to marshal delete entity request")
 	}
 
-	data, err = HTTPRequest("POST", deleteEntityIDEndpoint, nil, bytes.NewBuffer(jBytes), http.StatusOK)
+	data, err = HTTPRequest("POST", deleteEntityIDEndpoint, nil, nil, bytes.NewBuffer(jBytes), http.StatusOK)
 	if err != nil {
 		log.Error().Msgf("unable to make delete entity id request, %v", err)
 		return errors.New("unable to make delete entity id request")
@@ -74,7 +74,7 @@ func DisconnectHandler(disconnector Disconnecter) http.HandlerFunc {
 // RefreshHandler is used to handle refresh calls, proxies request to CRS cache
 func RefreshHandler(w http.ResponseWriter, req *http.Request) {
 	log.Debug().Msgf("received client request, %+v", req)
-	_, err := HTTPRequest("POST", updateTokenEndpoint, nil, req.Body, http.StatusOK)
+	_, err := HTTPRequest("POST", updateTokenEndpoint, nil, nil, req.Body, http.StatusOK)
 	if err != nil {
 		log.Error().Msgf("error sending request to refresh endpoint, %s", err)
 		w.WriteHeader(http.StatusBadRequest)

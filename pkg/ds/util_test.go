@@ -40,8 +40,12 @@ func TestHTTPRequest(t *testing.T) {
 	assert.NilError(t, err)
 	byteReadCloser := ioutil.NopCloser(bytes.NewReader(jBytes))
 
-	data, err := HTTPRequest("POST", "http://localhost:"+sm.port, map[string]string{"query": "test"}, byteReadCloser, http.StatusOK)
+	data, err := HTTPRequest("POST", "http://localhost:"+sm.port,
+		map[string]string{"Authorization": "Bearer abcdefg"}, map[string]string{"query": "test"}, byteReadCloser, http.StatusOK)
 	assert.NilError(t, err)
+
+	// test request header
+	assert.Equal(t, sm.GetTail(1).header.Get("Authorization"), "Bearer abcdefg")
 
 	// test output of server
 	assert.Equal(t, string(data), "test")

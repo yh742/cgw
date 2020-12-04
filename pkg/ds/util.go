@@ -28,7 +28,7 @@ func URLJoin(base string, path string) (string, error) {
 }
 
 // HTTPRequest makes http requests
-func HTTPRequest(method string, endpoint string, query map[string]string, body io.Reader, status int) ([]byte, error) {
+func HTTPRequest(method string, endpoint string, header map[string]string, query map[string]string, body io.Reader, status int) ([]byte, error) {
 	// create request client to get entity ID from CRS
 	client := &http.Client{
 		Timeout: 10 * time.Second,
@@ -36,6 +36,11 @@ func HTTPRequest(method string, endpoint string, query map[string]string, body i
 	req, err := http.NewRequest(method, endpoint, body)
 	if err != nil {
 		return nil, err
+	}
+	if header != nil {
+		for k, v := range header {
+			req.Header.Add(k, v)
+		}
 	}
 	queries := req.URL.Query()
 	for k, v := range query {

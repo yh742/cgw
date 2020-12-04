@@ -114,8 +114,9 @@ func (sm *ServiceMocks) LogRequestHandler(next http.HandlerFunc) http.HandlerFun
 			return
 		}
 		sm.requestsHistory = append(sm.requestsHistory, RequestEntry{
-			query: req.URL.String(),
-			body:  bbytes,
+			header: req.Header,
+			query:  req.URL.String(),
+			body:   bbytes,
 		})
 		req.Body = ioutil.NopCloser(bytes.NewReader(bbytes))
 		next(w, req)
@@ -150,8 +151,9 @@ func (sm *ServiceMocks) GetTail(index int) RequestEntry {
 
 // RequestEntry is a request transaction
 type RequestEntry struct {
-	query string
-	body  []byte
+	header http.Header
+	query  string
+	body   []byte
 }
 
 // ServiceMocks represents all the services that ds can talk to
