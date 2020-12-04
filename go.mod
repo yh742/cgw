@@ -1,4 +1,4 @@
-module yh742/disconnectservice
+module github.com/yh742/ds
 
 go 1.14
 

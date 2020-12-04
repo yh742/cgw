@@ -1,0 +1,18 @@
+{
+    "BSM": {
+        "MsgSourceInfo": [
+        {
+            "EntityTypeOpt": "VEH",
+            "EntitySubtypeOpt": "PSGR"
+        }
+        ],
+        "MsgFormat": "UPER",
+        "Sampled": false,
+        "DistanceOpt": 50
+    },
+    "ClientInformation": {
+        "EntityType": "VEH",
+        "EntitySubtype": "PSGR",
+        "VendorID": "FORD"
+    }
+}

@@ -1,30 +1,13 @@
-package main
+package ds
 
 import (
-	"net/http"
 	"testing"
 
 	"gotest.tools/assert"
 )
 
 func TestCRSCredentials(t *testing.T) {
-	cfg := Config{
-		CRS: CRSSettings{
-			Entity:    "sw",
-			Server:    "http://localhost:8085/registration",
-			CfgPath:   "./test/auth/crsFake",
-			TokenFile: "./test/auth/crsFake",
-		},
-	}
-	stop := make(chan struct{})
-	ss := StubServer{}
-	go ss.RunStubServer("8085", "POST", "/registration", map[string]string{
-		"ID": "12",
-	}, http.StatusCreated, stop)
-	defer func() {
-		stop <- struct{}{}
-	}()
-	mAuth, err := CRSCredentials(cfg)
+	mAuth, err := CRSCredentials("sw", "./test/auth/crsFake", "./test/config/crsCfg.json")
 	assert.NilError(t, err)
 	assert.Equal(t, mAuth.user, "sw-12")
 	assert.Equal(t, mAuth.password, "password")

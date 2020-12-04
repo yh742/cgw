@@ -1,4 +1,4 @@
-package main
+package ds
 
 import (
 	"errors"
@@ -26,7 +26,7 @@ func NewMQTTDisconnecter(cfg Config) (Disconnecter, error) {
 	var err error
 	var mAuth MQTTAuth
 	if cfg.CRS != (CRSSettings{}) {
-		mAuth, err = CRSCredentials(cfg)
+		mAuth, err = CRSCredentials(cfg.CRS.Entity, cfg.CRS.TokenFile, cfg.CRS.CfgPath)
 		if err != nil {
 			return nil, err
 		}

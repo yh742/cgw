@@ -1,4 +1,4 @@
-package main
+package ds
 
 import (
 	"bytes"
@@ -23,12 +23,13 @@ type Config struct {
 
 // CRSSettings represents settings for CRS
 type CRSSettings struct {
-	Entity      string `yaml:"entity"`
-	Server      string `yaml:"server"`
-	CfgPath     string `yaml:"cfgPath"`
-	TokenFile   string `yaml:"tokenFile"`
-	GetToken    string `yaml:"getToken"`
-	UpdateToken string `yaml:"updateToken"`
+	Entity       string `yaml:"entity"`
+	Server       string `yaml:"server"`
+	CfgPath      string `yaml:"cfgPath"`
+	TokenFile    string `yaml:"tokenFile"`
+	Registration string `yaml:"registration"`
+	GetToken     string `yaml:"getToken"`
+	UpdateToken  string `yaml:"updateToken"`
 }
 
 // MQTTSettings represents settings for MQTT

@@ -1,4 +1,4 @@
-package main
+package ds
 
 import (
 	"bytes"
@@ -6,10 +6,36 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"gotest.tools/assert"
 )
+
+var sm ServiceMocks
+
+func TestMain(m *testing.M) {
+	// setup servers for unit testing
+	sm = ServiceMocks{}
+	setEndpoints(Config{
+		CRS: CRSSettings{
+			Server:       "http://localhost:9090",
+			GetToken:     "/crs/v1/token",
+			UpdateToken:  "/crs/v1/refresh",
+			Registration: "/crs/v1/registration",
+		},
+		CAAS: CAASSettings{
+			Server:         "http://localhost:9090",
+			DeleteEntityID: "/caas/v1/entity/delete",
+		},
+		UpstreamReasonCode: []ReasonCode{Idle, NotAuthorized},
+	})
+	stop := make(chan struct{})
+	go sm.StartServer("9090", stop)
+	exitVal := m.Run()
+	stop <- struct{}{}
+	os.Exit(exitVal)
+}
 
 type dsMock struct {
 	DisconnectRequest
@@ -41,50 +67,27 @@ func TestDisconnectHandler(t *testing.T) {
 }
 
 func TestDeleteEntityID(t *testing.T) {
-	downstreamReasonCodes = map[ReasonCode]bool{
-		Idle:          true,
-		NotAuthorized: true,
-	}
-	getTokenEndpoint = "http://localhost:8080/token"
-	deleteEntityIDEndpoint = "http://localhost:9090/delete"
-	stop := make(chan struct{})
-	stop2 := make(chan struct{})
-	tokenStore := StubServer{}
-	caas := StubServer{}
-	go tokenStore.RunStubServer("8080", "GET", "/token", map[string]string{"token": "1sdfh3h2.2189r"}, http.StatusOK, stop)
-	go caas.RunStubServer("9090", "POST", "/delete", nil, http.StatusOK, stop2)
-	defer func() {
-		stop <- struct{}{}
-		stop2 <- struct{}{}
-	}()
-	err := DeleteEntityID("123", Idle)
+	err := deleteEntityID("123", Idle)
 	assert.NilError(t, err)
-	assert.Equal(t, tokenStore.reqQueryHistory[0].String(), "/token?entityid=123")
+	assert.Equal(t, sm.GetTail(2).query, "/crs/v1/token?entityid=123")
 	deleteReq := &DeleteEntityRequest{}
-	err = json.Unmarshal(caas.reqHistory[0], deleteReq)
+	err = json.Unmarshal(sm.GetTail(1).body, deleteReq)
 	assert.NilError(t, err)
 	assert.Equal(t, *deleteReq, DeleteEntityRequest{
 		Entity: "veh",
-		RefreshRequest: RefreshRequest{
+		EntityTokenPair: EntityTokenPair{
 			EntityID: "123",
-			Token:    "1sdfh3h2.2189r",
+			Token:    "123456.123456",
 		},
 	})
 
 }
 
 func TestRefreshHandler(t *testing.T) {
-	updateTokenEndpoint = "http://localhost:8081/update"
-	stop := make(chan struct{})
-	ss := StubServer{}
-	inReq := RefreshRequest{
+	inReq := EntityTokenPair{
 		EntityID: "123",
 		Token:    "abcdefg.abcdefg",
 	}
-	go ss.RunStubServer("8081", "POST", "/update", nil, http.StatusOK, stop)
-	defer func() {
-		stop <- struct{}{}
-	}()
 	jBytes, err := json.Marshal(inReq)
 	assert.NilError(t, err)
 	byteReadCloser := ioutil.NopCloser(bytes.NewReader(jBytes))
@@ -92,10 +95,8 @@ func TestRefreshHandler(t *testing.T) {
 	RefreshHandler(w, &http.Request{
 		Body: byteReadCloser,
 	})
-	assert.Equal(t, len(ss.reqHistory), 1)
-	assert.NilError(t, err)
-	rr := &RefreshRequest{}
-	err = json.Unmarshal(ss.reqHistory[0], rr)
+	rr := &EntityTokenPair{}
+	err = json.Unmarshal(sm.GetTail(1).body, rr)
 	assert.NilError(t, err)
 	assert.Equal(t, *rr, inReq)
 }

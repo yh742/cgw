@@ -1,7 +1,6 @@
-package main
+package ds
 
 import (
-	"net/http"
 	"testing"
 
 	"gotest.tools/assert"
@@ -98,20 +97,12 @@ func TestNewMQTTDisconnector(t *testing.T) {
 			},
 			CRS: CRSSettings{
 				Entity:    "sw",
-				Server:    "http://localhost:8082/registration",
-				CfgPath:   "./test/auth/crsFake",
+				Server:    "http://localhost:9090/crs/v1/registration",
+				CfgPath:   "./test/config/crsCfg.json",
 				TokenFile: "./test/auth/crsFake",
 			},
 		},
 	}
-	stop := make(chan struct{})
-	ss := StubServer{}
-	go ss.RunStubServer("8082", "POST", "/registration", map[string]string{
-		"ID": "12",
-	}, http.StatusCreated, stop)
-	defer func() {
-		stop <- struct{}{}
-	}()
 	for k, v := range testTable {
 		disconnecter, err := NewMQTTDisconnecter(v)
 		assert.NilError(t, err)

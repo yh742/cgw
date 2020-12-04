@@ -1,4 +1,4 @@
-package main
+package ds
 
 import (
 	"bufio"
@@ -30,9 +30,10 @@ type MQTTAuth struct {
 }
 
 // CRSCredentials creates auth scheme based on CRS entityID
-func CRSCredentials(cfg Config) (MQTTAuth, error) {
+// TODO: Probably need to add a bearer token here
+func CRSCredentials(entity string, tokenFile string, crsCfg string) (MQTTAuth, error) {
 	// read token file
-	tFile, err := os.Open(cfg.CRS.TokenFile)
+	tFile, err := os.Open(tokenFile)
 	if err != nil {
 		log.Error().Msg("can't open the token config file")
 		return MQTTAuth{}, err
@@ -44,7 +45,7 @@ func CRSCredentials(cfg Config) (MQTTAuth, error) {
 		return MQTTAuth{}, err
 	}
 	// read configuration file
-	cFile, err := os.Open(cfg.CRS.CfgPath)
+	cFile, err := os.Open(crsCfg)
 	if err != nil {
 		log.Error().Msg("can't opne the crs config file")
 		return MQTTAuth{}, err
@@ -57,13 +58,15 @@ func CRSCredentials(cfg Config) (MQTTAuth, error) {
 	}
 
 	// create request client to get entity ID from CRS
-	data, err := HTTPRequest("POST", cfg.CRS.Server, nil, bytes.NewBuffer(fBytes), http.StatusCreated)
+	data, err := HTTPRequest("POST", crsRegistrationEndpoint, nil, bytes.NewBuffer(fBytes), http.StatusCreated)
 	if err != nil {
 		log.Error().Msgf("CRS request failed, %v", err)
 		return MQTTAuth{}, errors.New("crs request failed")
 	}
 	idStruct := &struct{ ID string }{}
 	err = json.Unmarshal(data, idStruct)
+
+	log.Debug().Msgf("obtained %v", idStruct)
 	if err != nil {
 		log.Error().Msgf("unable to unmarshal data, '%s', %v", data, err)
 		return MQTTAuth{}, errors.New("unable to marshal data")
@@ -72,7 +75,7 @@ func CRSCredentials(cfg Config) (MQTTAuth, error) {
 
 	// assign user and password
 	return MQTTAuth{
-		user:     cfg.CRS.Entity + "-" + idStruct.ID,
+		user:     entity + "-" + idStruct.ID,
 		password: string(tBytes),
 	}, nil
 }
