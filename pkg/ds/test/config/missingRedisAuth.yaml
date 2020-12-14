@@ -11,8 +11,7 @@ caas:
   validateEndpoint: /validate
   deleteEndpoint: /entity/delete
 redis:
-  server: localhost:1234
-  authFile: "/etc/ds/auth"
+  server: localhost:2345
 mqtt:
   server: localhost:1883
   successCode: 0x03
@@ -21,5 +20,5 @@ mqtt:
     entity: sw
     server: vzmode-rkln.mec/registration:30413
     cfgPath: /etc/ds/crs/cfg
-    tokenFile: 
-    registrationEndpoint:
+    tokenFile: /etc/ds/crs/token
+    registrationEndpoint: /registration

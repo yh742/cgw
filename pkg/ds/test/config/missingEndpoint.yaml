@@ -9,7 +9,7 @@ caas:
   server: localhost:8989
   createEndpoint: /token
   validateEndpoint: /validate
-  deleteEndpoint: /entity/delete
+  deleteEndpoint:
 redis:
   server: localhost:1234
   authFile: "/etc/ds/auth"
@@ -21,5 +21,5 @@ mqtt:
     entity: sw
     server: vzmode-rkln.mec/registration:30413
     cfgPath: /etc/ds/crs/cfg
-    tokenFile: 
-    registrationEndpoint:
+    tokenFile: /etc/ds/crs/token
+    registrationEndpoint: /registration

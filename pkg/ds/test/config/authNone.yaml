@@ -1,0 +1,17 @@
+mecID: rkln
+readTimeout: 1000
+writeTimeout: 1000
+handlerTimeout: 1000
+maxHeaderBytes: 1000
+port: 9090
+redis:
+  server: localhost:6379
+  authFile: "/etc/ds/auth"
+caas:
+  server: localhost:8989
+  createEndpoint: /token
+  validateEndpoint: /validate
+  deleteEndpoint: /entity/delete
+mqtt:
+  server: localhost:1883
+  successCode: 0x03

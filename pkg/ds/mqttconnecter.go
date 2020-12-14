@@ -24,19 +24,24 @@ type MQTTDisconnecter struct {
 // NewMQTTDisconnecter creates a new disconnector
 func NewMQTTDisconnecter(cfg Config) (Disconnecter, error) {
 	var err error
-	var mAuth MQTTAuth
-	if cfg.CRS != (CRSSettings{}) {
-		mAuth, err = CRSCredentials(cfg.CRS.Entity, cfg.CRS.TokenFile, cfg.CRS.CfgPath)
+	mAuth := UserPassword{}
+	// get username/password based on crednetial type
+	if cfg.MQTT.AuthType == CRSBased {
+		url, err := URLJoin(cfg.MQTT.CRS.Server, cfg.MQTT.CRS.RegistrationEndpoint)
+		if err != nil {
+			log.Error().Msgf("unable to join crs registration %s, %s",
+				cfg.MQTT.CRS.Server, cfg.MQTT.CRS.RegistrationEndpoint)
+			return nil, fmt.Errorf("unable to join crs registration url, %s", err)
+		}
+		mAuth, err = CRSCredentials(url, cfg.MQTT.CRS.Entity, cfg.MQTT.CRS.TokenFile, cfg.MQTT.CRS.CfgPath)
 		if err != nil {
 			return nil, err
 		}
-	} else if cfg.MQTT.AuthFile != "" {
-		mAuth, err = FileCredentials(cfg)
+	} else if cfg.MQTT.AuthType == FileBased {
+		mAuth, err = FileCredentials(cfg.MQTT.AuthFile)
 		if err != nil {
 			return nil, err
 		}
-	} else {
-		mAuth = MQTTAuth{}
 	}
 	log.Debug().Msgf("got %+v", mAuth)
 	opts := mqtt.NewClientOptions()

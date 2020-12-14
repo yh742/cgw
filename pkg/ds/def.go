@@ -21,14 +21,33 @@ type DisconnectRequest struct {
 	NextServer string     `json:"nextServer"`
 }
 
-// EntityTokenPair is the json used for request
-type EntityTokenPair struct {
-	Token    string `json:"token"`
-	EntityID string `json:"entityid"`
+// FieldsChecker for structs that checks fields
+type FieldsChecker interface {
+	FieldsEmpty() bool
 }
 
-// DeleteEntityRequest is the json used for deleting entity requests
-type DeleteEntityRequest struct {
-	EntityTokenPair
+// ValidateTokenRequest is the json used for caas validation request
+type ValidateTokenRequest struct {
+	EntityTokenRequest
+	MEC string `json:"mec"`
+}
+
+// EntityTokenRequest is the json used for deleting entity requests
+type EntityTokenRequest struct {
+	EntityIDStruct
+	Token  string `json:"token"`
 	Entity string `json:"entity"`
+}
+
+// FieldsEmpty check is any of the fields are empty
+func (tokReq *EntityTokenRequest) FieldsEmpty() bool {
+	if IsEmpty(tokReq.Entity) || IsEmpty(tokReq.EntityID) || IsEmpty(tokReq.Token) {
+		return true
+	}
+	return false
+}
+
+// EntityIDStruct is the entityID
+type EntityIDStruct struct {
+	EntityID string `json:"entityid"`
 }

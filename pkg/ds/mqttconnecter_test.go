@@ -52,7 +52,7 @@ func TestBuildClientID(t *testing.T) {
 }
 
 func TestNewMQTTDisconnector(t *testing.T) {
-	testTable := map[MQTTAuth]Config{
+	testTable := map[UserPassword]Config{
 		{
 			"",
 			"",
@@ -95,12 +95,12 @@ func TestNewMQTTDisconnector(t *testing.T) {
 				SuccessCode: 0x03,
 				AuthFile:    "./test/auth/authFile",
 			},
-			CRS: CRSSettings{
-				Entity:    "sw",
-				Server:    "http://localhost:9090/crs/v1/registration",
-				CfgPath:   "./test/config/crsCfg.json",
-				TokenFile: "./test/auth/crsFake",
-			},
+			// CRS: CRSSettings{
+			// 	Entity:    "sw",
+			// 	Server:    "http://localhost:9090/crs/v1/registration",
+			// 	CfgPath:   "./test/config/crsCfg.json",
+			// 	TokenFile: "./test/auth/crsFake",
+			// },
 		},
 	}
 	for k, v := range testTable {

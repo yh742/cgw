@@ -5,52 +5,17 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
-	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 )
-
-// GetTokenHandler returns a token based on entityID
-func GetTokenHandler(w http.ResponseWriter, req *http.Request) {
-	entityID := req.URL.Query().Get("entityid")
-	if strings.TrimSpace(entityID) == "" {
-		w.WriteHeader(http.StatusBadRequest)
-	} else {
-
-		bytes, err := json.Marshal(map[string]string{"token": "123456.123456"})
-		if err != nil {
-			log.Error().Msg("error occured marshalling this call")
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		w.WriteHeader(http.StatusOK)
-		w.Write(bytes)
-	}
-}
-
-// RefreshTokenHandler refreshes a token based on the entityID/token passed in
-func RefreshTokenHandler(w http.ResponseWriter, req *http.Request) {
-	var rr EntityTokenPair
-	err := json.NewDecoder(req.Body).Decode(&rr)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	if strings.TrimSpace(rr.EntityID) == "" || strings.TrimSpace(rr.Token) == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-}
 
 // RegistrationHandler registers a new entity
 func RegistrationHandler(w http.ResponseWriter, req *http.Request) {
 	var jsonMap map[string]interface{}
 	err := json.NewDecoder(req.Body).Decode(&jsonMap)
 	if err != nil {
-		log.Debug().Msg("sadfsdf")
 		log.Debug().Msg(err.Error())
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -71,38 +36,109 @@ func RegistrationHandler(w http.ResponseWriter, req *http.Request) {
 	w.Write(jsBytes)
 }
 
+// CreateTokenHashHandler validates token/entity/entityID
+// uses the token to determin the type of response we will get
+// repeated.test => returns 409 and entityID of existing entityID
+// sleep.test => will sleep for 10 seconds
+// fail.test => return an error status
+func CreateTokenHashHandler(w http.ResponseWriter, req *http.Request) {
+	var vr ValidateTokenRequest
+	err := json.NewDecoder(req.Body).Decode(&vr)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		log.Error().Msgf("%s", err.Error())
+		return
+	}
+	if IsEmpty(vr.Entity) || IsEmpty(vr.EntityID) || IsEmpty(vr.MEC) || IsEmpty(vr.Token) {
+		w.WriteHeader(http.StatusBadRequest)
+		log.Error().Msgf("%+v", vr)
+		return
+	}
+	// return different responses based on token
+	if vr.Token == "repeated.test" {
+		jbytes, err := json.Marshal(EntityIDStruct{
+			EntityID: "4321",
+		})
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			log.Error().Msgf("%s", err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusConflict)
+		w.Write(jbytes)
+	} else if vr.Token == "sleep.test" {
+		time.Sleep(10 * time.Second)
+		return
+	} else if vr.Token == "fail.test" {
+		w.WriteHeader(http.StatusBadRequest)
+	}
+	log.Debug().Msgf("%+v", vr)
+	w.WriteHeader(http.StatusOK)
+}
+
+// ValidateHandler validates the token/entity/entityID
+// fail.test => return an error status
+func ValidateHandler(w http.ResponseWriter, req *http.Request) {
+	var vr ValidateTokenRequest
+	err := json.NewDecoder(req.Body).Decode(&vr)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		log.Error().Msgf("%s", err.Error())
+		return
+	}
+	if IsEmpty(vr.Entity) || IsEmpty(vr.EntityID) || IsEmpty(vr.MEC) || IsEmpty(vr.Token) {
+		w.WriteHeader(http.StatusBadRequest)
+		log.Error().Msgf("%+v", vr)
+		return
+	}
+	if vr.Token == "fail.test" {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("Bad Request"))
+	}
+	log.Debug().Msgf("%+v", vr)
+	w.WriteHeader(http.StatusOK)
+}
+
 // DeleteEntityHandler delete the entity id from the service
 func DeleteEntityHandler(w http.ResponseWriter, req *http.Request) {
-	var der DeleteEntityRequest
-	//err := json.NewDecoder(req.Body).Decode(&der)
-	bytess, err := ioutil.ReadAll(req.Body)
+	var der EntityTokenRequest
+	err := json.NewDecoder(req.Body).Decode(&der)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		log.Error().Msgf("%s", err.Error())
 		return
 	}
-	err = json.Unmarshal(bytess, &der)
-	if err != nil {
+	if IsEmpty(der.EntityID) || IsEmpty(der.Token) {
 		w.WriteHeader(http.StatusBadRequest)
-		log.Error().Msgf("%s", err.Error())
+		log.Error().Msgf("%+v", der)
 		return
 	}
-	if strings.TrimSpace(der.EntityID) == "" || strings.TrimSpace(der.Token) == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
+	log.Debug().Msgf("%+v", der)
 	w.WriteHeader(http.StatusOK)
 }
 
 // TestHandler returns input and outpu
 func TestHandler(w http.ResponseWriter, req *http.Request) {
 	queryString := req.URL.Query().Get("query")
-	if strings.TrimSpace(queryString) == "" {
+	if IsEmpty(queryString) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(queryString))
+}
+
+// RequestEntry is a request transaction
+type RequestEntry struct {
+	header http.Header
+	query  string
+	body   []byte
+}
+
+// ServiceMocks represents all the services that ds can talk to
+type ServiceMocks struct {
+	requestsHistory []RequestEntry
+	port            string
 }
 
 // LogRequestHandler logs requests
@@ -128,10 +164,13 @@ func (sm *ServiceMocks) StartServer(port string, stop <-chan struct{}) {
 	// routing
 	sm.port = port
 	router := mux.NewRouter()
-	router.HandleFunc("/crs/v1/token", sm.LogRequestHandler(GetTokenHandler)).Methods("GET")
-	router.HandleFunc("/crs/v1/refresh", sm.LogRequestHandler(RefreshTokenHandler)).Methods("POST")
+	// crs endpoints
 	router.HandleFunc("/crs/v1/registration", sm.LogRequestHandler(RegistrationHandler)).Methods("POST")
-	router.HandleFunc("/caas/v1/entity/delete", sm.LogRequestHandler(DeleteEntityHandler)).Methods("POST")
+
+	// caas endpoints
+	router.HandleFunc("/caas/v1/token/entity", sm.LogRequestHandler(CreateTokenHashHandler)).Methods("POST")
+	router.HandleFunc("/caas/v1/token/validate", sm.LogRequestHandler(ValidateHandler)).Methods("POST")
+	router.HandleFunc("/caas/v1/token/entity/delete", sm.LogRequestHandler(DeleteEntityHandler)).Methods("POST")
 	router.HandleFunc("/", sm.LogRequestHandler(TestHandler)).Methods("POST")
 	go func() {
 		err := http.ListenAndServe("0.0.0.0:"+port, router)
@@ -147,17 +186,4 @@ func (sm *ServiceMocks) StartServer(port string, stop <-chan struct{}) {
 // GetTail starts the server
 func (sm *ServiceMocks) GetTail(index int) RequestEntry {
 	return sm.requestsHistory[len(sm.requestsHistory)-index]
-}
-
-// RequestEntry is a request transaction
-type RequestEntry struct {
-	header http.Header
-	query  string
-	body   []byte
-}
-
-// ServiceMocks represents all the services that ds can talk to
-type ServiceMocks struct {
-	requestsHistory []RequestEntry
-	port            string
 }
