@@ -56,7 +56,8 @@ func CreateTokenHashHandler(w http.ResponseWriter, req *http.Request) {
 	}
 	// return different responses based on token
 	if vr.Token == "repeated.test" {
-		jbytes, err := json.Marshal(EntityIDStruct{
+		jbytes, err := json.Marshal(EntityPair{
+			Entity:   "veh",
 			EntityID: "4321",
 		})
 		if err != nil {

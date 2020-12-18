@@ -1,9 +1,9 @@
 package ds
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -12,7 +12,7 @@ import (
 
 // Disconnecter interface for all protocols
 type Disconnecter interface {
-	Disconnect(DisconnectRequest, http.ResponseWriter)
+	Disconnect(context.Context, DisconnectRequest) error
 }
 
 // MQTTDisconnecter is the handler used to connect to MQTT services
@@ -82,12 +82,11 @@ func buildClientID(connReq DisconnectRequest) (string, error) {
 }
 
 // Disconnect initiates a CONNECT call to a MQTT broker
-func (handler *MQTTDisconnecter) Disconnect(req DisconnectRequest, w http.ResponseWriter) {
+func (handler *MQTTDisconnecter) Disconnect(ctx context.Context, req DisconnectRequest) error {
 	// build clientID string based on entityID
 	clientID, err := buildClientID(req)
 	if err != nil {
-		log.Error().Msgf("error building client ID %s", err)
-		return
+		return fmt.Errorf("error building client ID %s", err)
 	}
 	log.Debug().Msgf("clientId created, %s", clientID)
 	handler.ConnOpts.SetClientID(clientID)
@@ -95,25 +94,28 @@ func (handler *MQTTDisconnecter) Disconnect(req DisconnectRequest, w http.Respon
 
 	// create client
 	client := mqtt.NewClient(handler.ConnOpts)
-	if token := client.Connect(); token.Wait() && token.Error() != nil {
-		cToken, ok := token.(*mqtt.ConnectToken)
-		if !ok {
-			log.Error().Msg("cannot cast mqtt token to connect tokens")
-			w.WriteHeader(http.StatusInternalServerError)
-			return
+	token := client.Connect()
+	mqttDone := make(chan struct{})
+	go func() {
+		token.Wait()
+		mqttDone <- struct{}{}
+	}()
+	select {
+	case <-mqttDone:
+		if token.Error() != nil {
+			cToken, ok := token.(*mqtt.ConnectToken)
+			if !ok {
+				return fmt.Errorf("MQTT response was invalid")
+			}
+			if cToken.ReturnCode() == handler.SuccessCode {
+				return fmt.Errorf("Disconnection was successful %d", cToken.ReturnCode())
+			}
+			return fmt.Errorf("Unexpected error while trying to connect to mqtt %s, %d", token.Error().Error(), cToken.ReturnCode())
 		}
-		if cToken.ReturnCode() == handler.SuccessCode {
-			log.Debug().Msgf("disconnection was successful %d", cToken.ReturnCode())
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		log.Error().Msgf("unexpected error while trying to connect to mqtt %s, %d", token.Error().Error(), cToken.ReturnCode())
-		w.WriteHeader(http.StatusForbidden)
-		return
+		// connection is created, should really never get here
+		client.Disconnect(0)
+		return fmt.Errorf("Unexpected state reached")
+	case <-ctx.Done():
+		return errors.New("timeout occured")
 	}
-
-	// connection is created, should really never get here
-	client.Disconnect(0)
-	log.Error().Msg("mqtt in connected state")
-	w.WriteHeader(http.StatusInternalServerError)
 }

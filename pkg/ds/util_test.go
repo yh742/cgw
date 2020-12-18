@@ -71,8 +71,8 @@ type testStruct struct {
 	Field2 string `json:"field2"`
 }
 
-func (tokReq *testStruct) FieldsEmpty() bool {
-	return false
+func (tokReq *testStruct) IsValid() bool {
+	return true
 }
 
 func TestJSONDecodeRequest(t *testing.T) {

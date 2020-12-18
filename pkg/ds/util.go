@@ -9,11 +9,39 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
 )
+
+func printFuncName() string {
+	fpcs := make([]uintptr, 1)
+	// skip 3 levels to get the caller
+	n := runtime.Callers(3, fpcs)
+	if n == 0 {
+		return ""
+	}
+	caller := runtime.FuncForPC(fpcs[0] - 1)
+	if caller == nil {
+		return ""
+	}
+	// return the name of the function
+	return caller.Name()
+}
+
+// DebugLog logs debug message with function name
+func DebugLog(value string, args ...interface{}) {
+	template := printFuncName() + ": " + value
+	log.Debug().Msgf(template, args...)
+}
+
+// ErrorLog logs error messages with function name
+func ErrorLog(value string, args ...interface{}) {
+	template := printFuncName() + ": " + value
+	log.Error().Msgf(template, args...)
+}
 
 // IsEmpty is shorthand for strings.TrimSpace
 func IsEmpty(s string) bool {
@@ -85,7 +113,7 @@ func HTTPRequest(ctx context.Context, method string, endpoint string, header map
 }
 
 // JSONDecodeRequest decodes JSON from http requests
-func JSONDecodeRequest(w http.ResponseWriter, r *http.Request, bodySize int64, obj FieldsChecker) error {
+func JSONDecodeRequest(w http.ResponseWriter, r *http.Request, bodySize int64, obj interface{}) error {
 	value := r.Header.Get("Content-Type")
 	if IsEmpty(value) || strings.ToLower(value) != "application/json" {
 		errString := fmt.Sprintf("Content-Type header is not \"%s\"", "application/json")
@@ -178,14 +206,7 @@ func JSONDecodeRequest(w http.ResponseWriter, r *http.Request, bodySize int64, o
 		return errors.New(msg)
 	}
 
-	// Check if all the required fields are populated
-	if obj.FieldsEmpty() {
-		msg := "Request body missing a required field"
-		http.Error(w, msg, http.StatusBadRequest)
-		return errors.New(msg)
-	}
-
-	log.Debug().Msgf("%+v", obj)
+	DebugLog("%+v", obj)
 
 	return nil
 }

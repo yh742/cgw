@@ -2,28 +2,149 @@ package ds
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
+	"github.com/bsm/redislock"
 	"github.com/go-redis/redis/v8"
 	"github.com/rs/zerolog/log"
 )
 
-// refreshToken is used to handle refresh calls, rewrites entityid/token to redis
-func refreshToken(kv KeyValueStore) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		// deocde json from body
-		tokenReq := EntityTokenRequest{}
-		err := JSONDecodeRequest(w, req, 1<<12, &tokenReq)
-		if err != nil {
-			log.Error().Msgf("refreshToken: error occured decoding json, %s", err)
+type ctxKey int
+type requestType int
+
+// Type of requests that we will see from client
+const (
+	EntityTokenReq   requestType = 0
+	DisconnectionReq requestType = 1
+)
+
+// Type of values stored as ctx
+const (
+	DecodedJSON ctxKey = 0
+)
+
+// jsonDecoderHandler help decode handler and stuffs it into the context
+func jsonDecodeHandler(reqType requestType, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		// deocde json based on the request type specified
+		var decodedReq interface{}
+		switch reqType {
+		case EntityTokenReq:
+			decodedReq = &EntityTokenRequest{}
+		case DisconnectionReq:
+			decodedReq = &DisconnectRequest{}
+		default:
+			ErrorLog("request type is not specified")
+			http.Error(w, "Interal Server Error", http.StatusInternalServerError)
 			return
 		}
-		// create context and set in redis
-		ctx := req.Context()
-		err = kv.Set(ctx, HyphenConcat(tokenReq.Entity, tokenReq.EntityID), tokenReq.Token)
+		err := JSONDecodeRequest(w, req, 1<<12, decodedReq)
 		if err != nil {
-			log.Error().Msgf("refreshToken: error occured setting token, %s", err)
+			ErrorLog("error occured decoding json, %s", err)
+			return
+		}
+		chk, ok := decodedReq.(ValidityChecker)
+		if !ok {
+			ErrorLog("unable to cast decoded request body to validitychecker")
+			http.Error(w, "Bad Request", http.StatusBadRequest)
+			return
+		}
+		if !chk.IsValid() {
+			ErrorLog("request body missing a required field")
+			http.Error(w, "Bad Request", http.StatusBadRequest)
+			return
+		}
+
+		// put decoded JSON as part of context
+		newCtx := context.WithValue(req.Context(), DecodedJSON, decodedReq)
+		next(w, req.WithContext(newCtx))
+	}
+}
+
+// redisLockHandler locks the key for a specific entity pair
+// so concurrent requests on the same entity pair won't cause race condition
+func redisLockHandler(rs RedisStore, timeout time.Duration, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		// retrieve json from body
+		ctx := req.Context()
+		dReq := ctx.Value(DecodedJSON)
+		if dReq == nil {
+			ErrorLog("unable to retrieve decoded json from ctx")
+			http.Error(w, "Bad Request", http.StatusBadRequest)
+			return
+		}
+		eid, ok := dReq.(EntityIdentifier)
+		if !ok {
+			ErrorLog("unable to cast decoded json from ctx %+v", dReq)
+			http.Error(w, "Bad Request", http.StatusBadRequest)
+			return
+		}
+
+		// setup retries for locks
+		backoff := redislock.LimitRetry(redislock.LinearBackoff(100*time.Millisecond), 3)
+		lock, err := rs.redisLock.Obtain(ctx, "lock:"+eid.GetEntityPair().CreateKey(), timeout, &redislock.Options{
+			RetryStrategy: backoff,
+		})
+		if err != nil {
+			ErrorLog("unable to obtain lock for resource, %s, %s", eid.GetEntityPair().CreateKey(), err)
+			http.Error(w, "Resource conflict", http.StatusConflict)
+			return
+		}
+		defer lock.Release(ctx)
+		next(w, req)
+	}
+}
+
+// getReqFromContext retrieves value from context based on request type specified
+func getReqFromContext(ctx context.Context, w http.ResponseWriter, reqType requestType, dataPtr interface{}) bool {
+	value := ctx.Value(DecodedJSON)
+	if value == nil {
+		ErrorLog("unable to retrieve decoded json from ctx")
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return false
+	}
+	switch reqType {
+	case EntityTokenReq:
+		lValPtr, ok := dataPtr.(*EntityTokenRequest)
+		DebugLog("%v", ok)
+		rVal, ok2 := value.(*EntityTokenRequest)
+		DebugLog("%v", ok2)
+		if !ok || !ok2 {
+			ErrorLog("unable to retrieve cast data from ctx")
+			http.Error(w, "Bad Request", http.StatusBadRequest)
+			return false
+		}
+		*lValPtr = *rVal
+	case DisconnectionReq:
+		lValPtr, ok := dataPtr.(*DisconnectRequest)
+		rVal, ok2 := value.(*DisconnectRequest)
+		if !ok || !ok2 {
+			ErrorLog("unable to retrieve cast data from ctx")
+			http.Error(w, "Bad Request", http.StatusBadRequest)
+			return false
+		}
+		*lValPtr = *rVal
+	}
+	return true
+}
+
+// refreshToken is used to handle refresh calls, rewrites entityid/token to redis
+// returns 200 on success
+// returns 4xx for other errors
+func refreshTokenHandler(rs RedisStore) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		// get context and set in redis
+		ctx := req.Context()
+		tokeReq := &EntityTokenRequest{}
+		if !getReqFromContext(ctx, w, EntityTokenReq, tokeReq) {
+			return
+		}
+		err := rs.redisClient.Set(ctx, tokeReq.CreateKey(), tokeReq.Token, 0).Err()
+		if err != nil {
+			ErrorLog("error occured setting token, %s", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
@@ -31,194 +152,146 @@ func refreshToken(kv KeyValueStore) http.Handler {
 	})
 }
 
-func validateToken(kv KeyValueStore, endpoint string, mecID string) http.Handler {
+// validateToken validates the entity/token mapping
+// returns 200 on success
+// returns 400 if it doesn't exist
+// returns 4xx for other errors
+func validateTokenHandler(rs RedisStore, endpoint string, mecID string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		// decode json from body
-		tokenReq := EntityTokenRequest{}
-		err := JSONDecodeRequest(w, req, 1<<12, &tokenReq)
-		if err != nil {
-			// only log here, JSONDecodeRequests writes to responsewriter
-			log.Error().Msgf("validateToken: error occured decoding json, %s", err)
-			return
-		}
-
 		// create context and check with redis, redis must have the most up to date lookup
 		ctx := req.Context()
-		val, err := kv.Get(ctx, HyphenConcat(tokenReq.Entity, tokenReq.EntityID))
-		if err == redis.Nil || val != tokenReq.Token {
-			log.Error().Msgf("validateToken: no access, %+v", tokenReq)
+		tokeReq := &EntityTokenRequest{}
+		if !getReqFromContext(ctx, w, EntityTokenReq, tokeReq) {
+			return
+		}
+		val, err := rs.redisClient.Get(ctx, tokeReq.CreateKey()).Result()
+		if err == redis.Nil || val != tokeReq.Token {
+			ErrorLog("user has no access, %+v", tokeReq)
 			http.Error(w, "User does not have access", http.StatusForbidden)
 			return
 		} else if err != nil {
-			log.Error().Msgf("validateToken: error occur getting from redis, %+v", tokenReq)
+			ErrorLog("error occur getting key from redis, %+v", tokeReq)
 			http.Error(w, "Error occured retrieving credentials", http.StatusInternalServerError)
 			return
 		}
-		log.Debug().Msgf("validateToken: retrieved value %s from %s", val, HyphenConcat(tokenReq.Entity, tokenReq.EntityID))
+		DebugLog("retrieved value %s from %s", val, tokeReq.CreateKey())
 		w.WriteHeader(http.StatusOK)
-
-		/* 	THIS CASE SHOULDN'T APPLY AS REDIS SHOULD ALWAYS BE IN SYNC
-		// cache might not be up to date, check with server
-		valReq := ValidateTokenRequest{
-			EntityTokenRequest: tokenReq,
-			MEC:                mecID,
-		}
-		jsBytes, err := json.Marshal(valReq)
-		if err != nil {
-			log.Error().Msgf("validateToken: encoding json error, %s", err)
-			http.Error(w, "Error occured upstream", http.StatusInternalServerError)
-			return
-		}
-		resp, err := HTTPRequest(ctx, "POST", endpoint, map[string]string{"Content-Type": "application/json"}, nil, bytes.NewBuffer(jsBytes))
-		if err != nil {
-			log.Error().Msgf("validateToken: error occured making request to caas, %s", err)
-			http.Error(w, "Error occured upstream", http.StatusInternalServerError)
-			return
-		}
-		if resp.status == http.StatusOK {
-			err := kv.Set(ctx, HyphenConcat(tokenReq.Entity, tokenReq.EntityID), tokenReq.Token)
-			if err != nil {
-				log.Error().Msgf("validateToken: error in setting redis value, %s", err)
-				http.Error(w, "Error occured with service", http.StatusInternalServerError)
-			}
-			w.WriteHeader(http.StatusOK)
-		} else {
-			log.Error().Msgf("validateToken: error returned from caas %d, %s", resp.status, string(resp.body))
-			w.WriteHeader(resp.status)
-			w.Write(resp.body)
-		}
-		*/
 	})
 }
 
-func createNewToken(kv KeyValueStore, endpoint string, mecID string) http.Handler {
+// createNewToken creates a new entity/token mapping on gateway
+// returns 200 on success
+// returns 409 if there's conflict
+// returns 4xx for other errors
+func createNewTokenHandler(rs RedisStore, endpoint string, mecID string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		// decode json from body
-		tokenReq := EntityTokenRequest{}
-		err := JSONDecodeRequest(w, req, 1<<12, &tokenReq)
-		if err != nil {
-			log.Error().Msgf("createNewToken: error occured decoding json, %s", err)
-			return
-		}
-
 		// the entity ID send to us is the new entity ID that crs created
 		// it will never be populated in cache, need to always check with caas first
 		// create new request to send to caas
 		ctx := req.Context()
+		tokeReq := &EntityTokenRequest{}
+		if !getReqFromContext(ctx, w, EntityTokenReq, tokeReq) {
+			return
+		}
 		valReq := ValidateTokenRequest{
-			EntityTokenRequest: tokenReq,
+			EntityTokenRequest: *tokeReq,
 			MEC:                mecID,
 		}
 		jsBytes, err := json.Marshal(valReq)
 		if err != nil {
-			log.Error().Msgf("createNewToken: encoding json error, %s", err)
+			ErrorLog("encoding json error, %s", err)
 			http.Error(w, "Error occured upstream", http.StatusInternalServerError)
 			return
 		}
 		resp, err := HTTPRequest(ctx, "POST", endpoint, map[string]string{"Content-Type": "application/json"}, nil, bytes.NewBuffer(jsBytes))
 		if err != nil {
-			log.Error().Msgf("createNewToken: error occured making request to caas, %s", err)
+			ErrorLog("error occured making request to caas, %s", err)
 			http.Error(w, "Error occured upstream", http.StatusInternalServerError)
 			return
 		}
 		// check response
 		if resp.status == http.StatusOK {
 			// write to cache and write OK to client
-			err := kv.Set(ctx, HyphenConcat(tokenReq.Entity, tokenReq.EntityID), tokenReq.Token)
+			err := rs.redisClient.Set(ctx, tokeReq.CreateKey(), tokeReq.Token, 0).Err()
 			if err != nil {
-				log.Error().Msgf("createNewToken: error writing new entry to cache, %s", err.Error())
+				ErrorLog("error writing new entry to cache, %s", err.Error())
 				http.Error(w, "Internal server cache write error", http.StatusInternalServerError)
 				return
 			}
 			w.WriteHeader(http.StatusOK)
 		} else if resp.status == http.StatusConflict {
+			// we should only get here if the tokens match
 			// check if json is formed correctly and not empty
-			eID := EntityIDStruct{}
-			err := json.Unmarshal(resp.body, &eID)
+			eID := &EntityPair{}
+			err := json.Unmarshal(resp.body, eID)
 			if err != nil {
-				log.Error().Msgf("createNewToken: decoding json response from caas filed, %s", err.Error())
+				ErrorLog("decoding json response from caas filed, %s", err.Error())
 				http.Error(w, "Internal server decoding error", http.StatusInternalServerError)
 				return
 			}
-			if IsEmpty(eID.EntityID) {
-				log.Error().Msgf("createNewToken: response from caas is empty")
+			if !eID.IsValid() {
+				ErrorLog("received empty response from caas, entity exists, %s", err.Error())
 				http.Error(w, "Internal server decoding error", http.StatusInternalServerError)
-				return
-			}
-			// write to cache and write 409 to client w/ the existin entity id
-			err = kv.Set(ctx, HyphenConcat(tokenReq.Entity, eID.EntityID), tokenReq.Token)
-			if err != nil {
-				log.Error().Msgf("createNewToken: error writing new entry to cache, %s", err.Error())
-				http.Error(w, "Internal server cache update error", http.StatusInternalServerError)
 				return
 			}
 			w.WriteHeader(http.StatusConflict)
 			w.Write(resp.body)
 		} else {
-			log.Error().Msgf("createNewToken: error response from caas %d", resp.status)
+			ErrorLog("error response from caas %d", resp.status)
 			http.Error(w, "Error occured upstream", resp.status)
 		}
 	})
 }
 
-// deleteEntityID looks up the token based on entity ID and delete its from CAAS
-func deleteEntityID(entityID string, reasonCode ReasonCode) error {
-	// check if reasoncode requires a upstream delete call to CAAS
-	// if _, ok := upstreamReasonCodes[reasonCode]; !ok {
-	// 	return nil
-	// }
-	// data, err := HTTPRequest("GET", getTokenEndpoint, nil, map[string]string{"entityid": entityID}, nil, http.StatusOK)
-	// if err != nil {
-	// 	log.Error().Msgf("unable to make request, %v", err)
-	// 	return errors.New("unable to make request")
-	// }
-	// tokenStruct := &struct {
-	// 	Token string `json:"token,required"`
-	// }{}
-	// err = json.Unmarshal(data, tokenStruct)
-	// if err != nil {
-	// 	log.Error().Msgf("unable to unmarshal data, '%s', %v", data, err)
-	// 	return errors.New("unable to marshal data")
-	// }
-	// deleteReq := DeleteEntityRequest{
-	// 	Entity: "veh",
-	// 	EntityTokenPair: EntityTokenPair{
-	// 		EntityID: entityID,
-	// 		Token:    tokenStruct.Token,
-	// 	},
-	// }
-	// jBytes, err := json.Marshal(deleteReq)
-	// if err != nil {
-	// 	log.Error().Msgf("unable to marshal delete entity request, %v", err)
-	// 	return errors.New("unable to marshal delete entity request")
-	// }
-
-	// data, err = HTTPRequest("POST", deleteEntityIDEndpoint, nil, nil, bytes.NewBuffer(jBytes), http.StatusOK)
-	// if err != nil {
-	// 	log.Error().Msgf("unable to make delete entity id request, %v", err)
-	// 	return errors.New("unable to make delete entity id request")
-	// }
-	return nil
-}
-
-// DisconnectHandler wraps all the disconnect calls to extract request parameter
-func DisconnectHandler(disconnector Disconnecter) http.HandlerFunc {
+// disconnectHandler disconnects the
+func disconnectHandler(disconnecter Disconnecter, rs RedisStore, deleteIDEndpoint string,
+	upstreamReasonCodes map[ReasonCode]bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
-		connReq := &DisconnectRequest{}
-		err := json.NewDecoder(req.Body).Decode(connReq)
-		if err != nil {
-			log.Error().Msgf("error decoding json request %s", err)
-			w.WriteHeader(http.StatusBadRequest)
+		// create context and try to disconnect first
+		ctx := req.Context()
+		disReq := &DisconnectRequest{}
+		if !getReqFromContext(ctx, w, DisconnectionReq, disReq) {
 			return
 		}
-		log.Debug().Msgf("received client request, %+v", connReq)
-		// perform lookup of token based on entityID
-		err = deleteEntityID(connReq.EntityID, connReq.ReasonCode)
+
+		// (1) get key from redis
+		token, err := rs.redisClient.Get(ctx, disReq.CreateKey()).Result()
 		if err != nil {
-			log.Error().Msgf("error looking up token based on json request %s", err)
-			w.WriteHeader(http.StatusBadRequest)
+			ErrorLog("error response getting key from redis, %s", err)
+			http.Error(w, "Error occured upstream", http.StatusInternalServerError)
 			return
 		}
-		disconnector.Disconnect(*connReq, w)
+		// (2) if needed, delete
+		if _, ok := upstreamReasonCodes[disReq.ReasonCode]; ok {
+			tokReq := EntityTokenRequest{
+				EntityPair: disReq.EntityPair,
+				Token:      token,
+			}
+			jsBytes, err := json.Marshal(tokReq)
+			resp, err := HTTPRequest(ctx, "POST", deleteIDEndpoint, map[string]string{"Content-Type": "application/json"}, nil, bytes.NewBuffer(jsBytes))
+			if err == nil {
+				log.Error().Msgf("disconnectHandler: unable to make request to caas, %v", err)
+				http.Error(w, "Unable to make request to caas", http.StatusInternalServerError)
+				return
+			}
+			if resp.status == http.StatusNotFound {
+				// if entityid/token mapping is not found, swallow the error for now since its gone already
+				log.Error().Msgf("disconnectHandler: unable to find entityid, got back %d from caas, %s", resp.status, resp.body)
+			} else if resp.status != http.StatusOK {
+				log.Error().Msgf("disconnectHandler: bad response from caas, got back %d from caas, %s", resp.status, resp.body)
+				http.Error(w, "Unable to make request to caas", http.StatusInternalServerError)
+				return
+			}
+		}
+
+		// (3) disconnect the client
+		// Disconnect call should always return success even if there's nothing to delete
+		err = disconnecter.Disconnect(ctx, *disReq)
+		if err != nil {
+			log.Error().Msgf("disconnectHandler: %s", err.Error())
+			http.Error(w, "Internal error occured while disconnecting", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
 	}
 }

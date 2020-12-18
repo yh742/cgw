@@ -22,7 +22,7 @@ type CAASGateway struct {
 	caasValidateURL       string
 	caasDeleteEntityIDURL string
 	upstreamReasonCodes   map[ReasonCode]bool
-	kv                    KeyValueStore
+	kv                    RedisStore
 	disconnecter          Disconnecter
 	mecID                 string
 }
@@ -96,10 +96,10 @@ func (cgw *CAASGateway) StartServer() {
 
 	// define routing scheme
 	router := mux.NewRouter()
-	router.Handle("/ds/v1/token",
-		http.TimeoutHandler(createNewToken(cgw.kv, cgw.caasCreateURL, cgw.mecID),
-			time.Duration(cgw.handlerTO)*time.Millisecond,
-			"Timed out processing request")).Methods("POST")
+	// router.Handle("/ds/v1/token",
+	// 	http.TimeoutHandler(createNewToken(cgw.kv, cgw.caasCreateURL, cgw.mecID),
+	// 		time.Duration(cgw.handlerTO)*time.Millisecond,
+	// 		"Timed out processing request")).Methods("POST")
 	// router.HandleFunc("/ds/v1/token/validate",
 	// 	http.TimeoutHandler(validateToken(cgw.kv, cgw.caasValidateURL))).Methods("POST")
 	// router.HandleFunc("/ds/v1/token/refresh", RefreshHandler).Methods("POST")

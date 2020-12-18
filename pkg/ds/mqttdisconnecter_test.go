@@ -10,14 +10,18 @@ func TestBuildClientID(t *testing.T) {
 	t.Run("success_case", func(t *testing.T) {
 		testTable := map[string]DisconnectRequest{
 			"sw-1232-156-rocklin.mec": {
-				Entity:     "sw",
-				EntityID:   "1232",
+				EntityPair: EntityPair{
+					Entity:   "sw",
+					EntityID: "1232",
+				},
 				ReasonCode: 0x9C,
 				NextServer: "rocklin.mec",
 			},
 			"admin-12-152": {
-				Entity:     "admin",
-				EntityID:   "12",
+				EntityPair: EntityPair{
+					Entity:   "admin",
+					EntityID: "12",
+				},
 				ReasonCode: 0x98,
 				NextServer: " ",
 			},
@@ -31,16 +35,22 @@ func TestBuildClientID(t *testing.T) {
 	t.Run("fail_case", func(t *testing.T) {
 		testTable := map[string]DisconnectRequest{
 			"entity type is not supported": {
-				Entity:   "",
-				EntityID: "123",
+				EntityPair: EntityPair{
+					Entity:   "",
+					EntityID: "123",
+				},
 			},
 			"entity ID is empty": {
-				Entity:   "sw",
-				EntityID: "  ",
+				EntityPair: EntityPair{
+					Entity:   "sw",
+					EntityID: "  ",
+				},
 			},
 			"reason code is not valid": {
-				Entity:     "sw",
-				EntityID:   "134",
+				EntityPair: EntityPair{
+					Entity:   "sw",
+					EntityID: "134",
+				},
 				ReasonCode: 0xF2,
 			},
 		}
@@ -71,6 +81,7 @@ func TestNewMQTTDisconnector(t *testing.T) {
 			MQTT: MQTTSettings{
 				Server:      "localhost:1883",
 				SuccessCode: 0x03,
+				AuthType:    FileBased,
 				AuthFile:    "./test/auth/authFile",
 			},
 		},
@@ -82,6 +93,7 @@ func TestNewMQTTDisconnector(t *testing.T) {
 			MQTT: MQTTSettings{
 				Server:      "localhost:1883",
 				SuccessCode: 0x03,
+				AuthType:    FileBased,
 				AuthFile:    "./test/auth/authFile",
 			},
 		},
@@ -93,14 +105,14 @@ func TestNewMQTTDisconnector(t *testing.T) {
 			MQTT: MQTTSettings{
 				Server:      "localhost:1883",
 				SuccessCode: 0x03,
-				AuthFile:    "./test/auth/authFile",
+				AuthType:    CRSBased,
+				CRS: CRSSettings{
+					Entity:    "sw",
+					Server:    "http://localhost:9090/crs/v1/registration",
+					CfgPath:   "./test/config/crsCfg.json",
+					TokenFile: "./test/auth/crsFake",
+				},
 			},
-			// CRS: CRSSettings{
-			// 	Entity:    "sw",
-			// 	Server:    "http://localhost:9090/crs/v1/registration",
-			// 	CfgPath:   "./test/config/crsCfg.json",
-			// 	TokenFile: "./test/auth/crsFake",
-			// },
 		},
 	}
 	for k, v := range testTable {
