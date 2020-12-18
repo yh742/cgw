@@ -3,6 +3,7 @@ module github.com/yh742/ds
 go 1.14
 
 require (
+	github.com/bsm/redislock v0.7.0
 	github.com/eclipse/paho.mqtt.golang v1.2.0
 	github.com/go-redis/redis/v8 v8.4.2
 	github.com/go-redis/redismock/v8 v8.0.0

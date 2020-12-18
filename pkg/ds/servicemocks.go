@@ -58,7 +58,7 @@ func CreateTokenHashHandler(w http.ResponseWriter, req *http.Request) {
 	if vr.Token == "repeated.test" {
 		jbytes, err := json.Marshal(EntityPair{
 			Entity:   "veh",
-			EntityID: "4321",
+			EntityID: "1234",
 		})
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
@@ -109,8 +109,17 @@ func DeleteEntityHandler(w http.ResponseWriter, req *http.Request) {
 		log.Error().Msgf("%s", err.Error())
 		return
 	}
-	if IsEmpty(der.EntityID) || IsEmpty(der.Token) {
+	if !der.IsValid() {
 		w.WriteHeader(http.StatusBadRequest)
+		log.Error().Msgf("%+v", der)
+		return
+	}
+	if der.Token == "not.found.test" {
+		w.WriteHeader(http.StatusNotFound)
+		log.Error().Msgf("%+v", der)
+		return
+	} else if der.Token == "fail.test" {
+		w.WriteHeader(http.StatusInternalServerError)
 		log.Error().Msgf("%+v", der)
 		return
 	}

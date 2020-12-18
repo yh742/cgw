@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,7 +22,9 @@ type dsMock struct {
 }
 
 func (m *dsMock) Disconnect(ctx context.Context, ds DisconnectRequest) error {
-	m.DisconnectRequest = ds
+	if ds.ReasonCode == RateTooHigh {
+		return errors.New("mqtt error")
+	}
 	return nil
 }
 
@@ -54,13 +57,46 @@ func TestMain(m *testing.M) {
 	os.Exit(exitVal)
 }
 
-func createTestRequest(t *testing.T, inStruct interface{}) *http.Request {
-	jsBytes, err := json.Marshal(inStruct)
-	assert.NilError(t, err)
-	req, err := http.NewRequest("POST", "random.url", bytes.NewBuffer(jsBytes))
-	assert.NilError(t, err)
+func createTestRequest(t *testing.T, bodyStruct interface{}, ctxStruct interface{}) *http.Request {
+	var req *http.Request
+	var err error
+	if bodyStruct != nil {
+		jsBytes, err := json.Marshal(bodyStruct)
+		assert.NilError(t, err)
+		req, err = http.NewRequest("POST", "random.url", bytes.NewBuffer(jsBytes))
+		assert.NilError(t, err)
+	} else {
+		req, err = http.NewRequest("POST", "random.url", nil)
+		assert.NilError(t, err)
+	}
 	req.Header.Add("Content-Type", "application/json")
+	if ctxStruct != nil {
+		ctx := context.WithValue(req.Context(), DecodedJSON, ctxStruct)
+		req = req.WithContext(ctx)
+	}
 	return req
+}
+
+func TestTimeoutHandler(t *testing.T) {
+	handler := http.TimeoutHandler(
+		createNewTokenHandler(gw.kv, gw.caasValidateURL, gw.mecID),
+		1*time.Millisecond,
+		"Timed out")
+	// create request and run
+	etr := &EntityTokenRequest{
+		Token: "sleep.test",
+		EntityPair: EntityPair{
+			Entity:   "veh",
+			EntityID: "1234",
+		},
+	}
+	w := httptest.NewRecorder()
+	req := createTestRequest(t, nil, etr)
+	handler.ServeHTTP(w, req)
+
+	// check if timed out error is throw (from timeout handler)
+	assert.Equal(t, w.Result().StatusCode, http.StatusServiceUnavailable)
+	assert.Equal(t, string(w.Body.Bytes()), "Timed out")
 }
 
 func TestJSONDecodeHandler(t *testing.T) {
@@ -90,7 +126,7 @@ func TestJSONDecodeHandler(t *testing.T) {
 			entityTokenReq: entHandler,
 			dsReq:          disHandler,
 		} {
-			req := createTestRequest(t, inStruct)
+			req := createTestRequest(t, inStruct, nil)
 			w := &httptest.ResponseRecorder{}
 			handler(w, req)
 
@@ -113,7 +149,7 @@ func TestJSONDecodeHandler(t *testing.T) {
 	// check json
 	t.Run("bad_json", func(t *testing.T) {
 		entityTokenReq.Token = ""
-		req := createTestRequest(t, entityTokenReq)
+		req := createTestRequest(t, entityTokenReq, nil)
 		w := &httptest.ResponseRecorder{}
 		entHandler(w, req)
 
@@ -124,7 +160,7 @@ func TestJSONDecodeHandler(t *testing.T) {
 	// check bad handler initialization
 	t.Run("bad_handler", func(t *testing.T) {
 		badHandler := jsonDecodeHandler(requestType(2), func(w http.ResponseWriter, req *http.Request) { lastReq = req })
-		req := createTestRequest(t, map[string]string{"x": "test"})
+		req := createTestRequest(t, map[string]string{"x": "test"}, nil)
 		w := &httptest.ResponseRecorder{}
 		badHandler(w, req)
 		assert.Equal(t, w.Code, http.StatusInternalServerError)
@@ -138,8 +174,7 @@ func TestRedisLock(t *testing.T) {
 		DebugLog("fufu")
 		time.Sleep(2 * time.Second)
 	})
-	req := createTestRequest(t, struct{}{})
-	ctx := context.WithValue(req.Context(), DecodedJSON, &EntityTokenRequest{
+	req := createTestRequest(t, nil, &EntityTokenRequest{
 		Token: "test.token",
 		EntityPair: EntityPair{
 			Entity:   "veh",
@@ -151,8 +186,8 @@ func TestRedisLock(t *testing.T) {
 	redMock.Regexp().ExpectSetNX("lock:veh-1234", `[a-z1-9]*`, 5*time.Second).SetVal(false)
 	redMock.Regexp().ExpectSetNX("lock:veh-1234", `[a-z1-9]*`, 5*time.Second).SetVal(false)
 	redMock.Regexp().ExpectSetNX("lock:veh-1234", `[a-z1-9]*`, 5*time.Second).SetVal(false)
+	defer redMock.ClearExpect()
 	w := &httptest.ResponseRecorder{}
-	req = req.WithContext(ctx)
 	go lockHandler(w, req)
 	lockHandler(w, req)
 	assert.Equal(t, x, 1)
@@ -177,17 +212,16 @@ func TestGetReqFromContext(t *testing.T) {
 			ReasonCode: Reauthenticate,
 		},
 	} {
-		req := createTestRequest(t, struct{}{})
-		ctx := context.WithValue(req.Context(), DecodedJSON, inStruct)
+		req := createTestRequest(t, nil, inStruct)
 		w := &httptest.ResponseRecorder{}
 		if reqType == EntityTokenReq {
 			st := &EntityTokenRequest{}
-			b := getReqFromContext(ctx, w, reqType, st)
+			b := getReqFromContext(req.Context(), w, reqType, st)
 			assert.Assert(t, b)
 			assert.Equal(t, st.Token, "test.token")
 		} else if reqType == DisconnectionReq {
 			st := &DisconnectRequest{}
-			b := getReqFromContext(ctx, w, reqType, st)
+			b := getReqFromContext(req.Context(), w, reqType, st)
 			assert.Assert(t, b)
 			assert.Equal(t, st.NextServer, "rkln.mec")
 		}
@@ -195,189 +229,189 @@ func TestGetReqFromContext(t *testing.T) {
 	}
 }
 
-// func TestRefreshToken(t *testing.T) {
-// 	httpHandler := http.TimeoutHandler(refreshToken(gw.kv), time.Second, "Timed out")
-// 	defer func() {
-// 		gw.kv.Flush(context.Background())
-// 		redMock.ClearExpect()
-// 	}()
-// 	// common structs
-// 	valStruct := ValidateTokenRequest{
-// 		EntityTokenRequest: EntityTokenRequest{
-// 			Entity: "veh",
-// 			Token:  "test.test",
-// 			EntityIDStruct: EntityIDStruct{
-// 				"1234",
-// 			},
-// 		},
-// 		MEC: gw.mecID,
-// 	}
+func TestRefreshToken(t *testing.T) {
+	handler := refreshTokenHandler(gw.kv)
+	etr := &EntityTokenRequest{
+		EntityPair: EntityPair{
+			Entity:   "veh",
+			EntityID: "1234",
+		},
+		Token: "test.test",
+	}
+	redMock.ExpectSet("veh-1234", "test.test", 0).SetVal("")
+	defer redMock.ClearExpect()
+	writer := httptest.NewRecorder()
+	req := createTestRequest(t, nil, etr)
+	handler(writer, req)
+	assert.Equal(t, writer.Code, http.StatusOK)
+}
 
-// 	redMock.ExpectSet("veh-1234", "test.test", 0).SetVal("")
-// 	writer := httptest.NewRecorder()
-// 	req := createTestRequest(t, valStruct.EntityTokenRequest)
-// 	httpHandler.ServeHTTP(writer, req)
-// 	assert.Equal(t, writer.Code, http.StatusOK)
-// }
+func TestValidateToken(t *testing.T) {
+	handler := validateTokenHandler(gw.kv, gw.caasValidateURL, gw.mecID)
+	etr := &EntityTokenRequest{
+		EntityPair: EntityPair{
+			Entity:   "veh",
+			EntityID: "1234",
+		},
+		Token: "test.test",
+	}
 
-// func TestValidateToken(t *testing.T) {
-// 	httpHandler := http.TimeoutHandler(validateToken(gw.kv, gw.caasValidateURL, gw.mecID), time.Second, "Timed out")
-// 	defer func() {
-// 		gw.kv.Flush(context.Background())
-// 		redMock.ClearExpect()
-// 	}()
-// 	// common structs
-// 	valStruct := ValidateTokenRequest{
-// 		EntityTokenRequest: EntityTokenRequest{
-// 			Entity: "veh",
-// 			Token:  "test.test",
-// 			EntityIDStruct: EntityIDStruct{
-// 				"1235",
-// 			},
-// 		},
-// 		MEC: gw.mecID,
-// 	}
+	// preset redis with a value to validate against
+	redMock.ExpectSet("veh-1234", "test.test", 0).SetVal("")
+	defer redMock.ClearExpect()
+	err := gw.kv.redisClient.Set(context.Background(), "veh-1234", "test.test", 0).Err()
+	assert.NilError(t, err)
 
-// 	redMock.ExpectSet("veh-1235", "test.test", 0).SetVal("")
-// 	// pre-populated a entry in redis cache
-// 	gw.kv.Set(context.Background(), "veh-1235", "test.test")
+	t.Run("success_verify", func(t *testing.T) {
+		redMock.ExpectGet("veh-1234").SetVal("test.test")
+		defer redMock.ClearExpect()
+		writer := httptest.NewRecorder()
+		req := createTestRequest(t, nil, etr)
+		handler(writer, req)
+		assert.Equal(t, writer.Code, http.StatusOK)
+	})
 
-// 	t.Run("verify_through_cached", func(t *testing.T) {
-// 		redMock.ExpectGet("veh-1235").SetVal("test.test")
-// 		writer := httptest.NewRecorder()
-// 		req := createTestRequest(t, valStruct.EntityTokenRequest)
-// 		httpHandler.ServeHTTP(writer, req)
-// 		assert.Equal(t, writer.Code, http.StatusOK)
-// 	})
+	t.Run("fail_verify", func(t *testing.T) {
+		writer := httptest.NewRecorder()
+		redMock.ExpectGet("sw-1234").RedisNil()
+		defer redMock.ClearExpect()
+		etr.Entity = "sw"
+		req := createTestRequest(t, nil, etr)
+		handler(writer, req)
+		assert.Equal(t, writer.Code, http.StatusForbidden)
+	})
+}
 
-// 	// t.Run("verify_through_caas", func(t *testing.T) {
-// 	// 	writer := httptest.NewRecorder()
-// 	// 	redMock.ExpectGet("veh-4321").RedisNil()
-// 	// 	redMock.ExpectSet("veh-4321", "test.test", 0).SetVal("")
-// 	// 	valStruct.EntityTokenRequest.EntityID = "4321"
-// 	// 	req := createTestRequest(t, valStruct.EntityTokenRequest)
-// 	// 	httpHandler.ServeHTTP(writer, req)
-// 	// 	assert.Equal(t, writer.Code, http.StatusOK)
-// 	// })
+func TestCreateNewToken(t *testing.T) {
+	// setup http handler
+	handler := createNewTokenHandler(gw.kv, gw.caasCreateURL, gw.mecID)
+	etr := &EntityTokenRequest{
+		Token: "test.test",
+		EntityPair: EntityPair{
+			Entity:   "veh",
+			EntityID: "1234",
+		},
+	}
 
-// 	t.Run("fail_case", func(t *testing.T) {
-// 		writer := httptest.NewRecorder()
-// 		redMock.ExpectGet("veh-5321").RedisNil()
-// 		// redMock.ExpectSet("veh-4321", "test.test", 0).SetVal("")
-// 		valStruct.EntityTokenRequest.Token = "fail.test"
-// 		req := createTestRequest(t, valStruct.EntityTokenRequest)
-// 		httpHandler.ServeHTTP(writer, req)
-// 		assert.Equal(t, writer.Code, http.StatusForbidden)
-// 	})
-// }
+	t.Run("success_case", func(t *testing.T) {
+		// set expectations
+		redMock.ExpectSet("veh-1234", "test.test", 0).SetVal("")
+		defer redMock.ClearExpect()
 
-// func TestCreateNewToken(t *testing.T) {
-// 	// setup http handler
-// 	httpHandler := http.TimeoutHandler(createNewToken(gw.kv, gw.caasCreateURL, gw.mecID), time.Second, "Timed out")
-// 	defer func() {
-// 		gw.kv.Flush(context.Background())
-// 		redMock.ClearExpect()
-// 	}()
-// 	// common structs
-// 	valStruct := ValidateTokenRequest{
-// 		EntityTokenRequest: EntityTokenRequest{
-// 			Entity: "veh",
-// 			Token:  "test.test",
-// 			EntityIDStruct: EntityIDStruct{
-// 				"1234",
-// 			},
-// 		},
-// 		MEC: gw.mecID,
-// 	}
+		// create request and run
+		writer := httptest.NewRecorder()
+		req := createTestRequest(t, nil, etr)
+		handler(writer, req)
 
-// 	// test cases:
-// 	// (1) run success case
-// 	// (2) run conflict case
-// 	// (3) run http timeout case
-// 	// (4) run fail case
-// 	t.Run("success_case", func(t *testing.T) {
-// 		// set expectations
-// 		redMock.ExpectSet("veh-1234", "test.test", 0).SetVal("")
+		// check results
+		val := &ValidateTokenRequest{}
+		err := json.Unmarshal(sm.GetTail(1).body, val)
+		assert.NilError(t, err)
+		assert.Equal(t, writer.Result().StatusCode, http.StatusOK)
+		assert.Equal(t, val.MEC, "local.mec")
+	})
 
-// 		// create request and run
-// 		writer := httptest.NewRecorder()
-// 		req := createTestRequest(t, valStruct.EntityTokenRequest)
-// 		httpHandler.ServeHTTP(writer, req)
+	t.Run("conflict_case", func(t *testing.T) {
+		// create request and run
+		writer := httptest.NewRecorder()
+		etr.Token = "repeated.test"
+		req := createTestRequest(t, nil, etr)
+		handler(writer, req)
 
-// 		// check:
-// 		// (1) if caas got the correct request
-// 		// (2) if caas responded with OK and set KV
-// 		// (3) if returned OK status
-// 		jsBytes, err := json.Marshal(valStruct)
-// 		assert.NilError(t, err)
-// 		assert.Equal(t, writer.Result().StatusCode, http.StatusOK)
-// 		assert.Equal(t, string(sm.GetTail(1).body), string(jsBytes))
-// 	})
+		// check results
+		val := &ValidateTokenRequest{}
+		err := json.Unmarshal(sm.GetTail(1).body, val)
+		assert.NilError(t, err)
+		assert.Equal(t, writer.Result().StatusCode, http.StatusConflict)
+		assert.Equal(t, val.CreateKey(), "veh-1234")
+	})
 
-// 	t.Run("conflict_case", func(t *testing.T) {
-// 		// set expectations
-// 		redMock.ExpectSet("veh-4321", "repeated.test", 0).SetVal("")
+	t.Run("fail_case", func(t *testing.T) {
+		// create fail request and run
+		writer := httptest.NewRecorder()
+		etr.Token = "fail.test"
+		req := createTestRequest(t, nil, etr)
+		handler(writer, req)
 
-// 		// create request and run
-// 		writer := httptest.NewRecorder()
-// 		valStruct.EntityTokenRequest.Token = "repeated.test"
-// 		req := createTestRequest(t, valStruct.EntityTokenRequest)
-// 		httpHandler.ServeHTTP(writer, req)
+		// check results
+		assert.Equal(t, writer.Result().StatusCode, http.StatusBadRequest)
+	})
+}
 
-// 		// check:
-// 		// (1) 409 conflict is received
-// 		// (2) bytes unmarshalled to json properly
-// 		jsBytes, err := json.Marshal(valStruct)
-// 		assert.NilError(t, err)
-// 		assert.Equal(t, string(sm.GetTail(1).body), string(jsBytes))
-// 		assert.Equal(t, writer.Result().StatusCode, http.StatusConflict)
-// 	})
+func TestDisconnectHandler(t *testing.T) {
+	ds := &dsMock{}
+	handler := disconnectHandler(ds, gw.kv, gw.caasDeleteEntityIDURL, map[ReasonCode]bool{
+		Idle:          true,
+		NotAuthorized: true,
+	})
+	dr := &DisconnectRequest{
+		EntityPair: EntityPair{
+			Entity:   "veh",
+			EntityID: "1234",
+		},
+		ReasonCode: Reauthenticate,
+		NextServer: "localhost:8080",
+	}
 
-// 	t.Run("fail_case_timeout", func(t *testing.T) {
-// 		// create request and run
-// 		writer := httptest.NewRecorder()
-// 		valStruct.EntityTokenRequest.Token = "sleep.test"
-// 		req := createTestRequest(t, valStruct.EntityTokenRequest)
-// 		httpHandler.ServeHTTP(writer, req)
+	t.Run("success", func(t *testing.T) {
+		redMock.ExpectGet("veh-1234").SetVal("test.test")
+		redMock.ExpectDel("veh-1234").SetVal(1)
+		defer redMock.ClearExpect()
+		w := httptest.NewRecorder()
+		req := createTestRequest(t, nil, dr)
+		handler(w, req)
+		defer assert.Equal(t, w.Code, http.StatusOK)
+	})
 
-// 		// check if timed out error is throw (from timeout handler)
-// 		assert.Equal(t, writer.Result().StatusCode, http.StatusServiceUnavailable)
-// 		assert.Equal(t, string(writer.Body.Bytes()), "Timed out")
-// 	})
+	t.Run("success_with_upstream", func(t *testing.T) {
+		redMock.ExpectGet("veh-1234").SetVal("test.test")
+		redMock.ExpectDel("veh-1234").SetVal(1)
+		defer redMock.ClearExpect()
+		dr.ReasonCode = Idle
+		w := httptest.NewRecorder()
+		req := createTestRequest(t, nil, dr)
+		handler(w, req)
+		assert.Equal(t, w.Code, http.StatusOK)
+	})
 
-// 	t.Run("fail_case", func(t *testing.T) {
-// 		// create fail request and run
-// 		writer := httptest.NewRecorder()
-// 		valStruct.EntityTokenRequest.Token = "fail.test"
-// 		req := createTestRequest(t, valStruct.EntityTokenRequest)
-// 		httpHandler.ServeHTTP(writer, req)
+	t.Run("success_with_upstream_caas_fail", func(t *testing.T) {
+		redMock.ExpectGet("veh-1234").SetVal("not.found.test")
+		redMock.ExpectDel("veh-1234").SetVal(1)
+		defer redMock.ClearExpect()
+		dr.ReasonCode = Idle
+		w := httptest.NewRecorder()
+		req := createTestRequest(t, nil, dr)
+		handler(w, req)
+		assert.Equal(t, w.Code, http.StatusOK)
+		assert.Equal(t, w.Header().Get("caas-verification"), "skipped")
+	})
 
-// 		// check:
-// 		// (1) 409 conflict is received
-// 		// (2) bytes unmarshalled to json properly
-// 		jsBytes, err := json.Marshal(valStruct)
-// 		assert.NilError(t, err)
-// 		assert.Equal(t, string(sm.GetTail(1).body), string(jsBytes))
-// 		assert.Equal(t, writer.Result().StatusCode, http.StatusBadRequest)
-// 	})
-// }
+	t.Run("fail_missing_key", func(t *testing.T) {
+		redMock.ExpectGet("veh-1234").SetErr(redis.Nil)
+		defer redMock.ClearExpect()
+		w := httptest.NewRecorder()
+		req := createTestRequest(t, nil, dr)
+		handler(w, req)
+		assert.Equal(t, w.Code, http.StatusNotFound)
+	})
 
-// func TestDisconnectHandler(t *testing.T) {
-// 	ds := &dsMock{}
-// 	jBytes, err := json.Marshal(DisconnectRequest{
-// 		Entity:     "sw",
-// 		EntityID:   "12",
-// 		ReasonCode: 0x9C,
-// 		NextServer: "localhost:8080",
-// 	})
-// 	assert.NilError(t, err)
-// 	byteReadCloser := ioutil.NopCloser(bytes.NewReader(jBytes))
-// 	handler := DisconnectHandler(ds)
-// 	handler(nil, &http.Request{
-// 		Body: byteReadCloser,
-// 	})
-// 	assert.Equal(t, ds.Entity, "sw")
-// 	assert.Equal(t, ds.EntityID, "12")
-// 	assert.Equal(t, ds.NextServer, "localhost:8080")
-// 	assert.Equal(t, ds.ReasonCode, ReasonCode(0x9C))
-// }
+	t.Run("fail_caas", func(t *testing.T) {
+		redMock.ExpectGet("veh-1234").SetVal("fail.test")
+		defer redMock.ClearExpect()
+		dr.ReasonCode = Idle
+		w := httptest.NewRecorder()
+		req := createTestRequest(t, nil, dr)
+		handler(w, req)
+		assert.Equal(t, w.Code, http.StatusInternalServerError)
+	})
+
+	t.Run("fail_disconnect", func(t *testing.T) {
+		redMock.ExpectGet("veh-1234").SetVal("test.test")
+		defer redMock.ClearExpect()
+		dr.ReasonCode = RateTooHigh
+		w := httptest.NewRecorder()
+		req := createTestRequest(t, nil, dr)
+		handler(w, req)
+		assert.Equal(t, w.Body.String(), "Internal error occured while disconnecting\n")
+	})
+}
