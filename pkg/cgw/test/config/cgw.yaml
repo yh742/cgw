@@ -1,0 +1,24 @@
+mecID: rkln
+readTimeout: 1000
+writeTimeout: 5000
+handlerTimeout: 4000
+maxHeaderBytes: 1000
+port: 8080
+upstreamReasonCode: [0x98, 0x87]
+tokenFile: ./test/auth/tokenFile
+caas:
+  server: http://localhost:9090
+  createEndpoint: /caas/v1/token/entity
+  deleteEndpoint: /caas/v1/token/entity/delete
+redis:
+  server: http://localhost:6379
+  authFile: "/etc/ds/auth"
+mqtt:
+  server: localhost:1883
+  successCode: 0x03
+  authType: 2
+  crs:
+    entity: veh
+    server: http://localhost:9090
+    cfgPath: /test/config/crsCfg.json
+    registrationEndpoint: /crs/v1/registration

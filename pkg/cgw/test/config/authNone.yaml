@@ -3,6 +3,7 @@ readTimeout: 1000
 writeTimeout: 1000
 handlerTimeout: 1000
 maxHeaderBytes: 1000
+tokenFile: /etc/ds/crs/token
 port: 9090
 redis:
   server: localhost:6379

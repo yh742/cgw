@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"github.com/rs/zerolog/log"
 )
 
 // Disconnecter interface for all protocols
@@ -22,34 +21,34 @@ type MQTTDisconnecter struct {
 }
 
 // NewMQTTDisconnecter creates a new disconnector
-func NewMQTTDisconnecter(cfg Config) (Disconnecter, error) {
+func NewMQTTDisconnecter(settings MQTTSettings, token string) (Disconnecter, error) {
 	var err error
 	mAuth := UserPassword{}
 	// get username/password based on crednetial type
-	if cfg.MQTT.AuthType == CRSBased {
-		url, err := URLJoin(cfg.MQTT.CRS.Server, cfg.MQTT.CRS.RegistrationEndpoint)
+	if settings.AuthType == CRSBased {
+		url, err := URLJoin(settings.CRS.Server, settings.CRS.RegistrationEndpoint)
 		if err != nil {
-			log.Error().Msgf("unable to join crs registration %s, %s",
-				cfg.MQTT.CRS.Server, cfg.MQTT.CRS.RegistrationEndpoint)
+			ErrorLog("unable to join crs registration %s, %s",
+				settings.CRS.Server, settings.CRS.RegistrationEndpoint)
 			return nil, fmt.Errorf("unable to join crs registration url, %s", err)
 		}
-		mAuth, err = CRSCredentials(url, cfg.MQTT.CRS.Entity, cfg.MQTT.CRS.TokenFile, cfg.MQTT.CRS.CfgPath)
+		mAuth, err = CRSCredentials(url, settings.CRS.Entity, token, settings.CRS.CfgPath)
 		if err != nil {
 			return nil, err
 		}
-	} else if cfg.MQTT.AuthType == FileBased {
-		mAuth, err = FileCredentials(cfg.MQTT.AuthFile)
+	} else if settings.AuthType == FileBased {
+		mAuth, err = FileCredentials(settings.AuthFile)
 		if err != nil {
 			return nil, err
 		}
 	}
-	log.Debug().Msgf("got %+v", mAuth)
+	DebugLog("got %+v", mAuth)
 	opts := mqtt.NewClientOptions()
-	opts.AddBroker(cfg.MQTT.Server)
+	opts.AddBroker(settings.Server)
 	opts.SetUsername(mAuth.user)
 	opts.SetPassword(mAuth.password)
 	return &MQTTDisconnecter{
-		SuccessCode: cfg.MQTT.SuccessCode,
+		SuccessCode: settings.SuccessCode,
 		ConnOpts:    opts,
 	}, nil
 }
@@ -88,7 +87,7 @@ func (handler *MQTTDisconnecter) Disconnect(ctx context.Context, req DisconnectR
 	if err != nil {
 		return fmt.Errorf("error building client ID %s", err)
 	}
-	log.Debug().Msgf("clientId created, %s", clientID)
+	DebugLog("clientId created, %s", clientID)
 	handler.ConnOpts.SetClientID(clientID)
 	handler.ConnOpts.SetCleanSession(true)
 

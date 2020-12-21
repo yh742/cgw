@@ -107,16 +107,15 @@ func TestNewMQTTDisconnector(t *testing.T) {
 				SuccessCode: 0x03,
 				AuthType:    CRSBased,
 				CRS: CRSSettings{
-					Entity:    "sw",
-					Server:    "http://localhost:9090/crs/v1/registration",
-					CfgPath:   "./test/config/crsCfg.json",
-					TokenFile: "./test/auth/crsFake",
+					Entity:  "sw",
+					Server:  "http://localhost:9090/crs/v1/registration",
+					CfgPath: "./test/config/crsCfg.json",
 				},
 			},
 		},
 	}
 	for k, v := range testTable {
-		disconnecter, err := NewMQTTDisconnecter(v)
+		disconnecter, err := NewMQTTDisconnecter(v.MQTT, "password")
 		assert.NilError(t, err)
 		mDS, ok := disconnecter.(*MQTTDisconnecter)
 		assert.Assert(t, ok)

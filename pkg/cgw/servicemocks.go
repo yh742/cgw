@@ -24,7 +24,7 @@ func RegistrationHandler(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	log.Debug().Msgf("%v", jsonMap)
+	DebugLog("%v", jsonMap)
 	w.WriteHeader(http.StatusCreated)
 	jsBytes, err := json.Marshal(map[string]string{
 		"ID": "12",
@@ -46,12 +46,12 @@ func CreateTokenHashHandler(w http.ResponseWriter, req *http.Request) {
 	err := json.NewDecoder(req.Body).Decode(&vr)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		log.Error().Msgf("%s", err.Error())
+		ErrorLog("%s", err.Error())
 		return
 	}
 	if IsEmpty(vr.Entity) || IsEmpty(vr.EntityID) || IsEmpty(vr.MEC) || IsEmpty(vr.Token) {
 		w.WriteHeader(http.StatusBadRequest)
-		log.Error().Msgf("%+v", vr)
+		ErrorLog("%+v", vr)
 		return
 	}
 	// return different responses based on token
@@ -62,7 +62,7 @@ func CreateTokenHashHandler(w http.ResponseWriter, req *http.Request) {
 		})
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
-			log.Error().Msgf("%s", err.Error())
+			ErrorLog("%s", err.Error())
 			return
 		}
 		w.WriteHeader(http.StatusConflict)
@@ -73,7 +73,7 @@ func CreateTokenHashHandler(w http.ResponseWriter, req *http.Request) {
 	} else if vr.Token == "fail.test" {
 		w.WriteHeader(http.StatusBadRequest)
 	}
-	log.Debug().Msgf("%+v", vr)
+	DebugLog("%+v", vr)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -84,19 +84,19 @@ func ValidateHandler(w http.ResponseWriter, req *http.Request) {
 	err := json.NewDecoder(req.Body).Decode(&vr)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		log.Error().Msgf("%s", err.Error())
+		ErrorLog("%s", err.Error())
 		return
 	}
 	if IsEmpty(vr.Entity) || IsEmpty(vr.EntityID) || IsEmpty(vr.MEC) || IsEmpty(vr.Token) {
 		w.WriteHeader(http.StatusBadRequest)
-		log.Error().Msgf("%+v", vr)
+		ErrorLog("%+v", vr)
 		return
 	}
 	if vr.Token == "fail.test" {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("Bad Request"))
 	}
-	log.Debug().Msgf("%+v", vr)
+	DebugLog("%+v", vr)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -106,24 +106,24 @@ func DeleteEntityHandler(w http.ResponseWriter, req *http.Request) {
 	err := json.NewDecoder(req.Body).Decode(&der)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		log.Error().Msgf("%s", err.Error())
+		ErrorLog("%s", err.Error())
 		return
 	}
 	if !der.IsValid() {
 		w.WriteHeader(http.StatusBadRequest)
-		log.Error().Msgf("%+v", der)
+		ErrorLog("%+v", der)
 		return
 	}
 	if der.Token == "not.found.test" {
 		w.WriteHeader(http.StatusNotFound)
-		log.Error().Msgf("%+v", der)
+		ErrorLog("%+v", der)
 		return
 	} else if der.Token == "fail.test" {
 		w.WriteHeader(http.StatusInternalServerError)
-		log.Error().Msgf("%+v", der)
+		ErrorLog("%+v", der)
 		return
 	}
-	log.Debug().Msgf("%+v", der)
+	DebugLog("%+v", der)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -185,11 +185,11 @@ func (sm *ServiceMocks) StartServer(port string, stop <-chan struct{}) {
 	go func() {
 		err := http.ListenAndServe("0.0.0.0:"+port, router)
 		if err != http.ErrServerClosed {
-			log.Error().Msgf("unable to start mock services server. %s", err)
+			ErrorLog("unable to start mock services server. %s", err)
 			panic(err)
 		}
 	}()
-	log.Debug().Msg("started mock services...")
+	DebugLog("started mock services...")
 	<-stop
 }
 

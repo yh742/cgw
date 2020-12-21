@@ -108,11 +108,9 @@ func getReqFromContext(ctx context.Context, w http.ResponseWriter, reqType reque
 	switch reqType {
 	case EntityTokenReq:
 		lValPtr, ok := dataPtr.(*EntityTokenRequest)
-		DebugLog("%v", ok)
 		rVal, ok2 := value.(*EntityTokenRequest)
-		DebugLog("%v", ok2)
 		if !ok || !ok2 {
-			ErrorLog("unable to retrieve cast data from ctx")
+			ErrorLog("unable to retrieve cast data from ctx, %t, %t", ok, ok2)
 			http.Error(w, "Bad Request", http.StatusBadRequest)
 			return false
 		}
@@ -121,7 +119,7 @@ func getReqFromContext(ctx context.Context, w http.ResponseWriter, reqType reque
 		lValPtr, ok := dataPtr.(*DisconnectRequest)
 		rVal, ok2 := value.(*DisconnectRequest)
 		if !ok || !ok2 {
-			ErrorLog("unable to retrieve cast data from ctx")
+			ErrorLog("unable to retrieve cast data from ctx, %t, %t", ok, ok2)
 			http.Error(w, "Bad Request", http.StatusBadRequest)
 			return false
 		}
@@ -155,7 +153,7 @@ func refreshTokenHandler(rs RedisStore) http.HandlerFunc {
 // returns 200 on success
 // returns 400 if it doesn't exist
 // returns 4xx for other errors
-func validateTokenHandler(rs RedisStore, endpoint string, mecID string) http.HandlerFunc {
+func validateTokenHandler(rs RedisStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// create context and check with redis, redis must have the most up to date lookup
 		ctx := req.Context()
@@ -182,7 +180,8 @@ func validateTokenHandler(rs RedisStore, endpoint string, mecID string) http.Han
 // returns 200 on success
 // returns 409 if there's conflict
 // returns 4xx for other errors
-func createNewTokenHandler(rs RedisStore, endpoint string, mecID string) http.HandlerFunc {
+func createNewTokenHandler(rs RedisStore,
+	endpoint string, mecID string, token string) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// the entity ID send to us is the new entity ID that crs created
 		// it will never be populated in cache, need to always check with caas first
@@ -203,7 +202,10 @@ func createNewTokenHandler(rs RedisStore, endpoint string, mecID string) http.Ha
 			return
 		}
 		resp, err := HTTPRequest(ctx, "POST", endpoint,
-			map[string]string{"Content-Type": "application/json"}, nil, bytes.NewBuffer(jsBytes))
+			map[string]string{
+				"Content-Type":  "application/json",
+				"Authorization": "Bearer " + token,
+			}, nil, bytes.NewBuffer(jsBytes))
 		if err != nil {
 			ErrorLog("error occured making request to caas, %s", err)
 			http.Error(w, "Error occured upstream", http.StatusInternalServerError)
@@ -246,7 +248,7 @@ func createNewTokenHandler(rs RedisStore, endpoint string, mecID string) http.Ha
 // disconnectHandler disconnects the
 func disconnectHandler(disconnecter Disconnecter,
 	rs RedisStore, deleteIDEndpoint string,
-	upstreamReasonCodes map[ReasonCode]bool) http.HandlerFunc {
+	upstreamReasonCodes map[ReasonCode]bool, token string) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// create context and try to disconnect first
 		ctx := req.Context()
@@ -276,7 +278,10 @@ func disconnectHandler(disconnecter Disconnecter,
 			}
 			jsBytes, err := json.Marshal(tokReq)
 			resp, err := HTTPRequest(ctx, "POST", deleteIDEndpoint,
-				map[string]string{"Content-Type": "application/json"}, nil, bytes.NewBuffer(jsBytes))
+				map[string]string{
+					"Content-Type":  "application/json",
+					"Authorization": "Bearer " + token,
+				}, nil, bytes.NewBuffer(jsBytes))
 			if err != nil {
 				ErrorLog("unable to make request to caas, %v", err)
 				http.Error(w, "Unable to make request to caas", http.StatusInternalServerError)

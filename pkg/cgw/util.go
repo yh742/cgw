@@ -103,7 +103,7 @@ func HTTPRequest(ctx context.Context, method string, endpoint string, header map
 	defer resp.Body.Close()
 	data, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		log.Error().Msgf("unable to read response body, %v", err)
+		ErrorLog("unable to read response body, %v", err)
 		return HTTPResponse{}, errors.New("can't read response body")
 	}
 	return HTTPResponse{

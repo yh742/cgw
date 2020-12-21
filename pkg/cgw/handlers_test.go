@@ -41,10 +41,10 @@ func TestMain(m *testing.M) {
 	gw = CAASGateway{
 		mecID:                 "local.mec",
 		caasCreateURL:         "http://localhost:9090/caas/v1/token/entity",
-		caasValidateURL:       "http://localhost:9090/caas/v1/token/validate",
 		caasDeleteEntityIDURL: "http://localhost:9090/caas/v1/token/entity/delete",
 		upstreamReasonCodes:   map[ReasonCode]bool{Idle: true, NotAuthorized: true},
 		disconnecter:          &dsMock{},
+		token:                 "password",
 		kv: RedisStore{
 			redisClient: rClient,
 			redisLock:   redislock.New(rClient),
@@ -75,28 +75,6 @@ func createTestRequest(t *testing.T, bodyStruct interface{}, ctxStruct interface
 		req = req.WithContext(ctx)
 	}
 	return req
-}
-
-func TestTimeoutHandler(t *testing.T) {
-	handler := http.TimeoutHandler(
-		createNewTokenHandler(gw.kv, gw.caasValidateURL, gw.mecID),
-		1*time.Millisecond,
-		"Timed out")
-	// create request and run
-	etr := &EntityTokenRequest{
-		Token: "sleep.test",
-		EntityPair: EntityPair{
-			Entity:   "veh",
-			EntityID: "1234",
-		},
-	}
-	w := httptest.NewRecorder()
-	req := createTestRequest(t, nil, etr)
-	handler.ServeHTTP(w, req)
-
-	// check if timed out error is throw (from timeout handler)
-	assert.Equal(t, w.Result().StatusCode, http.StatusServiceUnavailable)
-	assert.Equal(t, string(w.Body.Bytes()), "Timed out")
 }
 
 func TestJSONDecodeHandler(t *testing.T) {
@@ -189,6 +167,7 @@ func TestRedisLock(t *testing.T) {
 	defer redMock.ClearExpect()
 	w := &httptest.ResponseRecorder{}
 	go lockHandler(w, req)
+	time.Sleep(100 * time.Millisecond)
 	lockHandler(w, req)
 	assert.Equal(t, x, 1)
 	assert.Equal(t, w.Code, http.StatusConflict)
@@ -247,7 +226,7 @@ func TestRefreshToken(t *testing.T) {
 }
 
 func TestValidateToken(t *testing.T) {
-	handler := validateTokenHandler(gw.kv, gw.caasValidateURL, gw.mecID)
+	handler := validateTokenHandler(gw.kv)
 	etr := &EntityTokenRequest{
 		EntityPair: EntityPair{
 			Entity:   "veh",
@@ -284,7 +263,7 @@ func TestValidateToken(t *testing.T) {
 
 func TestCreateNewToken(t *testing.T) {
 	// setup http handler
-	handler := createNewTokenHandler(gw.kv, gw.caasCreateURL, gw.mecID)
+	handler := createNewTokenHandler(gw.kv, gw.caasCreateURL, gw.mecID, gw.token)
 	etr := &EntityTokenRequest{
 		Token: "test.test",
 		EntityPair: EntityPair{
@@ -343,7 +322,7 @@ func TestDisconnectHandler(t *testing.T) {
 	handler := disconnectHandler(ds, gw.kv, gw.caasDeleteEntityIDURL, map[ReasonCode]bool{
 		Idle:          true,
 		NotAuthorized: true,
-	})
+	}, gw.token)
 	dr := &DisconnectRequest{
 		EntityPair: EntityPair{
 			Entity:   "veh",

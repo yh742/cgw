@@ -7,7 +7,7 @@ import (
 )
 
 func TestCRSCredentials(t *testing.T) {
-	mAuth, err := CRSCredentials("http://localhost:9090/crs/v1/registration", "sw", "./test/auth/crsFake", "./test/config/crsCfg.json")
+	mAuth, err := CRSCredentials("http://localhost:9090/crs/v1/registration", "sw", "password", "./test/config/crsCfg.json")
 	assert.NilError(t, err)
 	assert.Equal(t, mAuth.user, "sw-12")
 	assert.Equal(t, mAuth.password, "password")

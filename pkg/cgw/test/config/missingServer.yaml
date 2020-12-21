@@ -4,6 +4,7 @@ writeTimeout: 1000
 handlerTimeout: 1000
 maxHeaderBytes: 1000
 port: 9090
+tokenFile: /etc/ds/crs/token
 upstreamReasonCode: [0x98, 0x87]
 caas:
   server: localhost:8989
@@ -11,7 +12,7 @@ caas:
   validateEndpoint: /validate
   deleteEndpoint: /entity/delete
 redis:
-  server: localhost:1234
+  server: 
   authFile: "/etc/ds/auth"
 mqtt:
   server: localhost:1883
@@ -21,5 +22,5 @@ mqtt:
     entity: sw
     server: vzmode-rkln.mec/registration:30413
     cfgPath: /etc/ds/crs/cfg
-    tokenFile: 
-    registrationEndpoint:
+    tokenFile: /etc/ds/crs/token
+    registrationEndpoint: /registration
