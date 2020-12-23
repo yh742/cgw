@@ -1,4 +1,4 @@
-package ds
+package cgw
 
 import (
 	"context"
@@ -28,14 +28,13 @@ type CAASGateway struct {
 	kv                    RedisStore
 	disconnecter          Disconnecter
 	mecID                 string
-	stopSignal            chan struct{}
+	StopSignal            chan struct{}
 }
 
 // NewCAASGateway creates a new gateway instance
 func NewCAASGateway(cfgPath string, redis RedisStore, disconnecter Disconnecter) (CAASGateway, error) {
 	// read yaml configuration file and create mqtt disconnector
-	cfg := Config{}
-	err := cfg.Parse(cfgPath)
+	cfg, err := NewConfig(cfgPath)
 	if err != nil {
 		ErrorLog("unable to parse config file %s", cfgPath)
 		return CAASGateway{}, fmt.Errorf("unable to parse config file, %s", err)
@@ -68,19 +67,19 @@ func NewCAASGateway(cfgPath string, redis RedisStore, disconnecter Disconnecter)
 	tFile, err := os.Open(cfg.TokenFile)
 	if err != nil {
 		msg := fmt.Sprintf("can't open the token file, %s", cfg.TokenFile)
-		log.Error().Msg(msg)
+		ErrorLog(msg)
 		return CAASGateway{}, errors.New(msg)
 	}
 	defer tFile.Close()
 	tBytes, err := ioutil.ReadAll(tFile)
 	if err != nil {
 		msg := fmt.Sprintf("can't read the token file, %s", cfg.TokenFile)
-		log.Error().Msg(msg)
+		ErrorLog(msg)
 		return CAASGateway{}, errors.New(msg)
 	}
 	if IsEmpty(string(tBytes)) {
 		msg := "token is empty"
-		log.Error().Msg(msg)
+		ErrorLog(msg)
 		return CAASGateway{}, errors.New(msg)
 	}
 	caasGW.token = string(tBytes)
@@ -91,12 +90,31 @@ func NewCAASGateway(cfgPath string, redis RedisStore, disconnecter Disconnecter)
 		caasGW.upstreamReasonCodes[rc] = true
 	}
 
-	// assign disconnecter and redis to gateway
-	caasGW.disconnecter = disconnecter
-	caasGW.kv = redis
+	// assign disconnecter and redis to gateway, if not passed in
+	if disconnecter == nil {
+		caasGW.disconnecter, err = NewMQTTDisconnecter(cfg.MQTT, caasGW.token)
+		if err != nil {
+			msg := fmt.Sprintf("can't create disconnecter, %s", err)
+			ErrorLog(msg)
+			return CAASGateway{}, errors.New(msg)
+		}
+	} else {
+		caasGW.disconnecter = disconnecter
+	}
+
+	if redis == (RedisStore{}) {
+		caasGW.kv, err = NewRedisStore(cfg.Redis)
+		if err != nil {
+			msg := fmt.Sprintf("can't create redis store, %s", err)
+			ErrorLog(msg)
+			return CAASGateway{}, errors.New(msg)
+		}
+	} else {
+		caasGW.kv = redis
+	}
 
 	// stop signal
-	caasGW.stopSignal = make(chan struct{})
+	caasGW.StopSignal = make(chan struct{})
 	return caasGW, nil
 }
 
@@ -107,25 +125,25 @@ func (cgw *CAASGateway) StartServer() {
 
 	// define routing scheme
 	router := mux.NewRouter()
-	router.Handle("/ds/v1/token",
+	router.Handle("/cgw/v1/token",
 		http.TimeoutHandler(
 			jsonDecodeHandler(EntityTokenReq,
 				redisLockHandler(cgw.kv, cgw.handlerTO,
 					createNewTokenHandler(cgw.kv, cgw.caasCreateURL, cgw.mecID, cgw.token))),
 			cgw.handlerTO, "Timed out processing request")).Methods("POST")
-	router.Handle("/ds/v1/token/validate",
+	router.Handle("/cgw/v1/token/validate",
 		http.TimeoutHandler(
 			jsonDecodeHandler(EntityTokenReq,
 				redisLockHandler(cgw.kv, cgw.handlerTO,
 					validateTokenHandler(cgw.kv))),
 			cgw.handlerTO, "Timed out processing request")).Methods("POST")
-	router.Handle("/ds/v1/token/refresh",
+	router.Handle("/cgw/v1/token/refresh",
 		http.TimeoutHandler(
 			jsonDecodeHandler(EntityTokenReq,
 				redisLockHandler(cgw.kv, cgw.handlerTO,
 					refreshTokenHandler(cgw.kv))),
 			cgw.handlerTO, "Timed out processing request")).Methods("POST")
-	router.Handle("/ds/v1/disconnect",
+	router.Handle("/cgw/v1/disconnect",
 		http.TimeoutHandler(
 			jsonDecodeHandler(DisconnectionReq,
 				redisLockHandler(cgw.kv, cgw.handlerTO,
@@ -150,7 +168,7 @@ func (cgw *CAASGateway) StartServer() {
 		}
 	}()
 
-	<-cgw.stopSignal
+	<-cgw.StopSignal
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

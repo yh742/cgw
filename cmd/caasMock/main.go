@@ -1,10 +1,5 @@
 package main
 
-/*
-TODOS:
-1) get token from cache on certain calls and call delete entities on CAAS
-2) update tokens from cache on refresh calls
-*/
 import (
 	"flag"
 	"os"
@@ -18,7 +13,6 @@ import (
 
 func main() {
 	// find the config file path
-	cfgPath := flag.String("cfg", "/etc/cgw/config.yaml", "Path for configuration file")
 	logLevel := flag.Int("loglevel", 1, "Set log level (trace=-1, debug=0, info=1, warn=2, error=3)")
 	flag.Parse()
 
@@ -27,15 +21,13 @@ func main() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	zerolog.SetGlobalLevel(zerolog.Level(*logLevel))
 
-	sigs := make(chan os.Signal, 1)
+	sigs := make(chan os.Signal)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	stopSignal := make(chan struct{})
 
-	gw, err := cgw.NewCAASGateway(*cfgPath, cgw.RedisStore{}, nil)
-	if err != nil {
-		cgw.ErrorLog("can't create new gateway, %s", err)
-		return
-	}
-	go gw.StartServer()
+	sm := cgw.ServiceMocks{}
+	go sm.StartServer("9090", stopSignal)
 	<-sigs
-	gw.StopSignal <- struct{}{}
+	cgw.DebugLog("cancel signal received")
+	stopSignal <- struct{}{}
 }

@@ -1,25 +1,59 @@
 version: "3.3"
 
 services:
-  ds:
+
+  cgw:
     build:
       context: ..
       dockerfile: dockerfile
     networks:
       - mqtt
     depends_on:
+      - caas
       - mosquitto
+      - redis
     command: -loglevel=-1
+    expose:
+      - "8080"
     ports:
       - "8080:8080"
     volumes:
       - type: bind
-        source: ./config/ds/config.yaml
-        target: /etc/ds/config.yaml
+        source: ./config/cgw/config.yaml
+        target: /etc/cgw/config.yaml
       - type: bind
-        source: ./config/ds/auth
-        target: /etc/ds/auth
-    
+        source: ./config/cgw/mqttAuth
+        target: /etc/cgw/mqttAuth
+      - type: bind
+        source: ./config/cgw/token
+        target: /etc/cgw/token
+      - type: bind
+        source: ./config/cgw/redisAuth
+        target: /etc/cgw/redisAuth
+  
+  caas:
+    build:
+      context: ..
+      dockerfile: caasMock.dockerfile
+    networks:
+      - mqtt
+    expose:
+      - "9090"
+    ports:
+      - "9090:9090"
+
+  redis:
+    image: redis
+    command: redis-server /usr/local/etc/redis.conf
+    networks:
+      - mqtt
+    ports:
+      - "6379:6379"
+    volumes:
+      - type: bind
+        source: ./config/redis/redis.conf
+        target: /usr/local/etc/redis.conf
+
   mosquitto:
     image: eclipse-mosquitto
     hostname: mosquitto
@@ -27,10 +61,8 @@ services:
       - mqtt
     expose:
       - "1883"
-      # - "9001"
     ports:
       - "1883:1883"
-      # - "9001:9001"
     volumes:
       - type: bind
         source: ./config/mosquitto/mosquitto.conf

@@ -1,4 +1,4 @@
-package ds
+package cgw
 
 import (
 	"bytes"
@@ -34,7 +34,7 @@ func TestStartServer(t *testing.T) {
 	assert.NilError(t, err)
 	go cgw.StartServer()
 	defer func() {
-		cgw.stopSignal <- struct{}{}
+		cgw.StopSignal <- struct{}{}
 	}()
 	t.Run("check_endpoints", func(t *testing.T) {
 		etr := EntityTokenRequest{

@@ -1,1 +1,1 @@
-docker run --rm -it -v $(pwd)/config:/etc/ds/ yhseanhsu/ds
+docker run --rm -it -v $(pwd)/config:/etc/cgw/ yhseanhsu/cgw

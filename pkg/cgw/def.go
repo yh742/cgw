@@ -1,4 +1,4 @@
-package ds
+package cgw
 
 // ReasonCode explains the disconnection reason
 type ReasonCode byte

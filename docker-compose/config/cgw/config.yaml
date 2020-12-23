@@ -1,0 +1,20 @@
+mecID: rkln.mec
+readTimeout: 1000
+writeTimeout: 5000
+handlerTimeout: 4000
+maxHeaderBytes: 2000
+port: 8080
+upstreamReasonCode: [0x98, 0x87]
+tokenFile: /etc/cgw/token 
+caas:
+  server: http://caas:9090
+  createEndpoint: /caas/v1/token/entity
+  deleteEndpoint: /caas/v1/token/entity/delete
+redis:
+  server: redis:6379
+  authFile: /etc/cgw/redisAuth
+mqtt:
+  server: mosquitto:1883
+  authType: 1
+  successCode: 0x05
+  authFile: /etc/cgw/mqttAuth

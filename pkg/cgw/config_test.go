@@ -1,4 +1,4 @@
-package ds
+package cgw
 
 import (
 	"testing"
@@ -89,10 +89,9 @@ func TestConfigParse(t *testing.T) {
 			},
 		}
 		for k, v := range testTable {
-			cfg := &Config{}
-			err := cfg.Parse(k)
+			cfg, err := NewConfig(k)
 			assert.NilError(t, err)
-			assert.DeepEqual(t, *cfg, v)
+			assert.DeepEqual(t, cfg, v)
 		}
 	})
 
@@ -104,8 +103,7 @@ func TestConfigParse(t *testing.T) {
 			"./test/config/missingRedisAuth.yaml": "missing required redis auth file",
 		}
 		for k, v := range testTable {
-			cfg := &Config{}
-			err := cfg.Parse(k)
+			_, err := NewConfig(k)
 			assert.Error(t, err, v)
 		}
 	})

@@ -1,4 +1,4 @@
-package ds
+package cgw
 
 import (
 	"bytes"
@@ -56,29 +56,30 @@ type RedisSettings struct {
 	DBIndex  int    `yaml:"DBIndex"`
 }
 
-// Parse the file provided in path
-func (cfg *Config) Parse(path string) error {
+// NewConfig parses the file provided in path
+func NewConfig(path string) (Config, error) {
+	cfg := &Config{}
 	DebugLog("parsing file path: %s", path)
 	file, err := os.Open(path)
 	if err != nil {
-		return err
+		return Config{}, err
 	}
 	defer file.Close()
 	data, err := ioutil.ReadAll(file)
 	if err != nil {
-		return err
+		return Config{}, err
 	}
 	bytesRead := bytes.NewReader(data)
 	yaml := yaml.NewDecoder(bytesRead)
 	err = yaml.Decode(cfg)
 	if err != nil {
-		return err
+		return Config{}, err
 	}
 
 	// make sure required fields are populated
 	if IsEmpty(cfg.Port) || IsEmpty(cfg.MECID) || IsEmpty(cfg.TokenFile) {
 		ErrorLog("missing required value %s, %s, %s", cfg.Port, cfg.MECID, cfg.TokenFile)
-		return errors.New("missing required value")
+		return Config{}, errors.New("missing required value")
 	}
 
 	// check server timeout value
@@ -87,7 +88,7 @@ func (cfg *Config) Parse(path string) error {
 		ErrorLog("must specify server values;"+
 			"readtimeout: %d, writetimeout: %d, maxheaderbytes: %d, handlertimeout: %d",
 			cfg.ReadTimeout, cfg.WriteTimeout, cfg.MaxHeaderBytes, cfg.HandlerTimeout)
-		return errors.New("invalid server values")
+		return Config{}, errors.New("invalid server values")
 	}
 
 	// make sure all requried servers are populated
@@ -95,7 +96,7 @@ func (cfg *Config) Parse(path string) error {
 		IsEmpty(cfg.Redis.Server) {
 		ErrorLog("missing one of the required servers; redis: %s, caas: %s, mqtt: %s",
 			cfg.Redis.Server, cfg.CAAS.Server, cfg.MQTT.Server)
-		return errors.New("missing required server locations")
+		return Config{}, errors.New("missing required server locations")
 	}
 
 	// make sure all endpoints are populated
@@ -103,7 +104,7 @@ func (cfg *Config) Parse(path string) error {
 		IsEmpty(cfg.CAAS.CreateEndpoint) {
 		ErrorLog("missing caas endpoints; create: %s, deleteEntityID: %s",
 			cfg.CAAS.CreateEndpoint, cfg.CAAS.DeleteEndpoint)
-		return errors.New("missing required endpoint")
+		return Config{}, errors.New("missing required endpoint")
 	}
 
 	// make sure auth fields are populated
@@ -114,19 +115,19 @@ func (cfg *Config) Parse(path string) error {
 				" server: %s, entity: %s, config: %s, registration: %s",
 				cfg.MQTT.CRS.Server, cfg.MQTT.CRS.Entity, cfg.MQTT.CRS.CfgPath,
 				cfg.MQTT.CRS.RegistrationEndpoint)
-			return errors.New("missing required crs auth fields")
+			return Config{}, errors.New("missing required crs auth fields")
 		}
 	} else if cfg.MQTT.AuthType == FileBased {
 		if strings.TrimSpace(cfg.MQTT.AuthFile) == "" {
 			ErrorLog("missing mqtt auth file: %s", cfg.MQTT.AuthFile)
-			return errors.New("missing required mqtt auth fields")
+			return Config{}, errors.New("missing required mqtt auth fields")
 		}
 	}
 
 	// make sure redis auth is populated
 	if IsEmpty(cfg.Redis.AuthFile) {
 		ErrorLog("missing redis auth file: %s", cfg.Redis.AuthFile)
-		return errors.New("missing required redis auth file")
+		return Config{}, errors.New("missing required redis auth file")
 	}
-	return nil
+	return *cfg, nil
 }

@@ -1,7 +1,9 @@
-package ds
+package cgw
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -42,6 +44,7 @@ func NewRedisStore(settings RedisSettings) (RedisStore, error) {
 			DB:       settings.DBIndex,
 		}),
 	}
+	DebugLog("redis credentials, %v", creds)
 	rdb.redisLock = redislock.New(rdb.redisClient)
 
 	// make sure connection is up
@@ -49,8 +52,11 @@ func NewRedisStore(settings RedisSettings) (RedisStore, error) {
 	defer cancel()
 	pong, err := rdb.redisClient.Ping(ctx).Result()
 	if err != nil && strings.ToLower(pong) == "pong" {
-		return RedisStore{}, nil
+		msg := fmt.Sprintf("didn't receive pong, %s, %s", pong, err)
+		ErrorLog(msg)
+		return RedisStore{}, errors.New(msg)
 	}
+	DebugLog("received pong from redis")
 	return rdb, nil
 }
 

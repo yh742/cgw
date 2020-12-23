@@ -1,0 +1,1 @@
+curl -v -X POST -H 'content-type: application/json' -d '{"entity": "veh", "entityid": "1234", "token": "test.test"}' localhost:8080/cgw/v1/token
