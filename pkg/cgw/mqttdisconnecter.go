@@ -55,25 +55,12 @@ func NewMQTTDisconnecter(settings MQTTSettings, token string) (Disconnecter, err
 
 // buildClientID creates a ClientID based on client requests
 func buildClientID(connReq DisconnectRequest) (string, error) {
-	// (1) check entity type to see if its sw or admin
-	if strings.ToLower(connReq.Entity) != "sw" &&
-		strings.ToLower(connReq.Entity) != "admin" {
-		return "", errors.New("entity type is not supported")
-	}
-	// (2) check entity ID is not empty
-	if strings.TrimSpace(connReq.EntityID) == "" {
-		return "", errors.New("entity ID is empty")
-	}
-	// (3) check reason code, mqtt reason code should be < 163
-	if connReq.ReasonCode > ReasonCode(163) {
-		return "", errors.New("reason code is not valid")
-	}
 	clientID := []string{
 		connReq.Entity,
 		connReq.EntityID,
 		fmt.Sprintf("%d", connReq.ReasonCode),
 	}
-	// (4) if next server exists append it
+	// if next server exists append it
 	if strings.TrimSpace(connReq.NextServer) != "" {
 		clientID = append(clientID, connReq.NextServer)
 	}
@@ -107,7 +94,7 @@ func (handler *MQTTDisconnecter) Disconnect(ctx context.Context, req DisconnectR
 				return fmt.Errorf("MQTT response was invalid")
 			}
 			if cToken.ReturnCode() == handler.SuccessCode {
-				return fmt.Errorf("Disconnection was successful %d", cToken.ReturnCode())
+				return nil
 			}
 			return fmt.Errorf("Unexpected error while trying to connect to mqtt %s, %d", token.Error().Error(), cToken.ReturnCode())
 		}

@@ -34,7 +34,8 @@ services:
   caas:
     build:
       context: ..
-      dockerfile: caasMock.dockerfile
+      dockerfile: caasmock.dockerfile
+    command: -loglevel=-1
     networks:
       - mqtt
     expose:

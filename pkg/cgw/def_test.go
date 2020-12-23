@@ -69,7 +69,7 @@ func TestIsValid(t *testing.T) {
 	})
 
 	t.Run("fail", func(t *testing.T) {
-		ep.Entity = ""
+		ep.Entity = "asd"
 		etr.Token = ""
 		dsr.ReasonCode = ReasonCode(5)
 		for _, validChk := range []ValidityChecker{

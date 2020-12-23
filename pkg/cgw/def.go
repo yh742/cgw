@@ -1,16 +1,20 @@
 package cgw
 
+import "strings"
+
 // ReasonCode explains the disconnection reason
 type ReasonCode byte
 
 // ReasonCode enumerations
 const (
 	Reauthenticate ReasonCode = 0x19
-	NotAuthorized  ReasonCode = 0x87
 	Expiration     ReasonCode = 0x0A
-	RateTooHigh    ReasonCode = 0x96
 	Handover       ReasonCode = 0x9C
-	Idle           ReasonCode = 0x98
+
+	// upstream codes
+	RateTooHigh   ReasonCode = 0x96
+	NotAuthorized ReasonCode = 0x87
+	Idle          ReasonCode = 0x98
 )
 
 // EntityIdentifier is struct for data that contains entitypair
@@ -38,6 +42,7 @@ func (tokReq *DisconnectRequest) IsValid() bool {
 	case Handover:
 	case Idle:
 	default:
+		ErrorLog("reason code is not valid, %d", tokReq.ReasonCode)
 		return false
 	}
 	return true
@@ -89,10 +94,18 @@ func (ep *EntityPair) IsValid() bool {
 	if IsEmpty(ep.Entity) || IsEmpty(ep.EntityID) {
 		return false
 	}
+	switch strings.ToLower(ep.Entity) {
+	case "veh":
+	case "sw":
+	case "admin":
+	default:
+		ErrorLog("entity is not valid, %d", ep.Entity)
+		return false
+	}
 	return true
 }
 
 // CreateKey builds a key from entity pair
 func (ep *EntityPair) CreateKey() string {
-	return HyphenConcat(ep.Entity, ep.EntityID)
+	return HyphenConcat(strings.ToLower(ep.Entity), ep.EntityID)
 }

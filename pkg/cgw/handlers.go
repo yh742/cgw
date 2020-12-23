@@ -52,7 +52,7 @@ func jsonDecodeHandler(reqType requestType, next http.HandlerFunc) http.HandlerF
 			return
 		}
 		if !chk.IsValid() {
-			ErrorLog("request body missing a required field")
+			ErrorLog("request body missing a required field, %v", chk)
 			http.Error(w, "Bad Request", http.StatusBadRequest)
 			return
 		}
@@ -271,7 +271,7 @@ func disconnectHandler(disconnecter Disconnecter,
 		token, err := rs.redisClient.Get(ctx, disReq.CreateKey()).Result()
 		if err == redis.Nil {
 			ErrorLog("entity does not exist, %s", disReq.CreateKey())
-			http.Error(w, "User does not exist", http.StatusNotFound)
+			http.Error(w, "Entity/EntityID does not exist", http.StatusNotFound)
 			return
 		} else if err != nil {
 			ErrorLog("error response getting key from redis, %s", err)

@@ -65,6 +65,7 @@ func CreateTokenHashHandler(db map[string]EntityPair) http.HandlerFunc {
 		DebugLog("%+v", vr)
 		if val, ok := db[vr.Token]; ok {
 			// token creation request is repeated
+			DebugLog("key exists already, %s", val)
 			jbytes, err := json.Marshal(val)
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
@@ -102,12 +103,22 @@ func DeleteEntityHandler(db map[string]EntityPair) http.HandlerFunc {
 			return
 		}
 		delete(db, der.Token)
-		DebugLog("%+v", der)
+		DebugLog("token deleted, %+v", der)
+		DebugLog("db status, %+v", db)
 		w.WriteHeader(http.StatusOK)
 	}
 }
 
-// TestHandler returns input and outpu
+// DeleteHandler removes entries
+func DeleteHandler(sm *ServiceMocks) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		sm.ClearDB()
+		DebugLog("deleted db, %v", sm.db)
+		w.WriteHeader(http.StatusAccepted)
+	}
+}
+
+// TestHandler returns input and output
 func TestHandler(w http.ResponseWriter, req *http.Request) {
 	queryString := req.URL.Query().Get("query")
 	if IsEmpty(queryString) {
@@ -162,6 +173,7 @@ func (sm *ServiceMocks) StartServer(port string, stop <-chan struct{}) {
 	// caas endpoints
 	router.HandleFunc("/caas/v1/token/entity", sm.LogRequestHandler(CreateTokenHashHandler(sm.db))).Methods("POST")
 	router.HandleFunc("/caas/v1/token/entity/delete", sm.LogRequestHandler(DeleteEntityHandler(sm.db))).Methods("POST")
+	router.HandleFunc("/", sm.LogRequestHandler(DeleteHandler(sm))).Methods("DELETE")
 	router.HandleFunc("/", sm.LogRequestHandler(TestHandler)).Methods("POST")
 	go func() {
 		err := http.ListenAndServe("0.0.0.0:"+port, router)
