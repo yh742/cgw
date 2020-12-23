@@ -170,7 +170,7 @@ func TestRedisLock(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	lockHandler(w, req)
 	assert.Equal(t, x, 1)
-	assert.Equal(t, w.Code, http.StatusConflict)
+	assert.Equal(t, w.Code, http.StatusUnprocessableEntity)
 }
 
 func TestGetReqFromContext(t *testing.T) {
@@ -314,9 +314,11 @@ func TestCreateNewToken(t *testing.T) {
 	t.Run("conflict_case", func(t *testing.T) {
 		// create 2 requests and run after each other
 		writer := httptest.NewRecorder()
+		redMock.ExpectSet("veh-1234", "test.test", 0).SetVal("")
 		req := createTestRequest(t, nil, etr)
 		handler(writer, req)
 		req = createTestRequest(t, nil, etr)
+		writer = httptest.NewRecorder()
 		handler(writer, req)
 		defer sm.ClearDB()
 
@@ -324,7 +326,7 @@ func TestCreateNewToken(t *testing.T) {
 		val := &ValidateTokenRequest{}
 		err := json.Unmarshal(sm.GetTail(1).body, val)
 		assert.NilError(t, err)
-		assert.Equal(t, writer.Result().StatusCode, http.StatusConflict)
+		assert.Equal(t, writer.Code, http.StatusConflict)
 		assert.Equal(t, val.CreateKey(), "veh-1234")
 	})
 

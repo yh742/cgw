@@ -24,6 +24,7 @@ type CAASGateway struct {
 	token                 string
 	caasCreateURL         string
 	caasDeleteEntityIDURL string
+	flushEndpoint         string
 	upstreamReasonCodes   map[ReasonCode]bool
 	kv                    RedisStore
 	disconnecter          Disconnecter
@@ -115,6 +116,11 @@ func NewCAASGateway(cfgPath string, redis RedisStore, disconnecter Disconnecter)
 
 	// stop signal
 	caasGW.StopSignal = make(chan struct{})
+
+	// create flush endpoint if not empty
+	if !IsEmpty(cfg.FlushEndpoint) {
+		caasGW.flushEndpoint = cfg.FlushEndpoint
+	}
 	return caasGW, nil
 }
 
@@ -150,6 +156,12 @@ func (cgw *CAASGateway) StartServer() {
 					disconnectHandler(
 						cgw.disconnecter, cgw.kv, cgw.caasDeleteEntityIDURL, cgw.upstreamReasonCodes, cgw.token))),
 			cgw.handlerTO, "Timed out processing request")).Methods("POST")
+
+	if !IsEmpty(cgw.flushEndpoint) {
+		DebugLog("debug flush endpoint is enabled, %s", cgw.flushEndpoint)
+		router.Handle(cgw.flushEndpoint, http.TimeoutHandler(flushHandler(cgw.kv),
+			cgw.handlerTO, "Timed out processing request")).Methods("POST")
+	}
 
 	// create server instance
 	srv := &http.Server{

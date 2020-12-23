@@ -23,6 +23,7 @@ type Config struct {
 	MQTT               MQTTSettings  `yaml:"mqtt"`
 	CAAS               CAASSettings  `yaml:"caas"`
 	Redis              RedisSettings `yaml:"redis"`
+	FlushEndpoint      string        `yaml:"flushEndpoint"`
 }
 
 // MQTTSettings represents settings for MQTT

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -41,7 +42,7 @@ func RegistrationHandler(w http.ResponseWriter, req *http.Request) {
 // repeated.test => returns 409 and entityID of existing entityID
 // sleep.test => will sleep for 10 seconds
 // fail.test => return an error status
-func CreateTokenHashHandler(db map[string]EntityPair) http.HandlerFunc {
+func CreateTokenHashHandler(sm *ServiceMocks) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		var vr ValidateTokenRequest
 		err := json.NewDecoder(req.Body).Decode(&vr)
@@ -63,7 +64,9 @@ func CreateTokenHashHandler(db map[string]EntityPair) http.HandlerFunc {
 			w.WriteHeader(http.StatusBadRequest)
 		}
 		DebugLog("%+v", vr)
-		if val, ok := db[vr.Token]; ok {
+		sm.lock.Lock()
+		defer sm.lock.Unlock()
+		if val, ok := sm.db[vr.Token]; ok {
 			// token creation request is repeated
 			DebugLog("key exists already, %s", val)
 			jbytes, err := json.Marshal(val)
@@ -72,18 +75,19 @@ func CreateTokenHashHandler(db map[string]EntityPair) http.HandlerFunc {
 				ErrorLog("%s", err.Error())
 				return
 			}
+			DebugLog("returning conflict status")
 			w.WriteHeader(http.StatusConflict)
 			w.Write(jbytes)
 		} else {
 			// create new token
-			db[vr.Token] = vr.EntityPair
+			sm.db[vr.Token] = vr.EntityPair
 			w.WriteHeader(http.StatusOK)
 		}
 	}
 }
 
 // DeleteEntityHandler delete the entity id from the service
-func DeleteEntityHandler(db map[string]EntityPair) http.HandlerFunc {
+func DeleteEntityHandler(sm *ServiceMocks) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		var der EntityTokenRequest
 		err := json.NewDecoder(req.Body).Decode(&der)
@@ -97,14 +101,16 @@ func DeleteEntityHandler(db map[string]EntityPair) http.HandlerFunc {
 			ErrorLog("%+v", der)
 			return
 		}
-		if _, ok := db[der.Token]; !ok {
+		sm.lock.Lock()
+		defer sm.lock.Unlock()
+		if _, ok := sm.db[der.Token]; !ok {
 			w.WriteHeader(http.StatusNotFound)
 			ErrorLog("%+v", der)
 			return
 		}
-		delete(db, der.Token)
+		delete(sm.db, der.Token)
 		DebugLog("token deleted, %+v", der)
-		DebugLog("db status, %+v", db)
+		DebugLog("db status, %+v", sm.db)
 		w.WriteHeader(http.StatusOK)
 	}
 }
@@ -112,6 +118,8 @@ func DeleteEntityHandler(db map[string]EntityPair) http.HandlerFunc {
 // DeleteHandler removes entries
 func DeleteHandler(sm *ServiceMocks) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
+		sm.lock.Lock()
+		defer sm.lock.Unlock()
 		sm.ClearDB()
 		DebugLog("deleted db, %v", sm.db)
 		w.WriteHeader(http.StatusAccepted)
@@ -141,6 +149,7 @@ type ServiceMocks struct {
 	db              map[string]EntityPair
 	requestsHistory []RequestEntry
 	port            string
+	lock            sync.Mutex
 }
 
 // LogRequestHandler logs requests
@@ -171,8 +180,8 @@ func (sm *ServiceMocks) StartServer(port string, stop <-chan struct{}) {
 	router.HandleFunc("/crs/v1/registration", sm.LogRequestHandler(RegistrationHandler)).Methods("POST")
 
 	// caas endpoints
-	router.HandleFunc("/caas/v1/token/entity", sm.LogRequestHandler(CreateTokenHashHandler(sm.db))).Methods("POST")
-	router.HandleFunc("/caas/v1/token/entity/delete", sm.LogRequestHandler(DeleteEntityHandler(sm.db))).Methods("POST")
+	router.HandleFunc("/caas/v1/token/entity", sm.LogRequestHandler(CreateTokenHashHandler(sm))).Methods("POST")
+	router.HandleFunc("/caas/v1/token/entity/delete", sm.LogRequestHandler(DeleteEntityHandler(sm))).Methods("POST")
 	router.HandleFunc("/", sm.LogRequestHandler(DeleteHandler(sm))).Methods("DELETE")
 	router.HandleFunc("/", sm.LogRequestHandler(TestHandler)).Methods("POST")
 	go func() {
@@ -194,4 +203,5 @@ func (sm *ServiceMocks) GetTail(index int) RequestEntry {
 // ClearDB removes all entries in db
 func (sm *ServiceMocks) ClearDB() {
 	sm.db = map[string]EntityPair{}
+	DebugLog("removed db, %v", sm.db)
 }

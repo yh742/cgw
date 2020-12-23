@@ -89,7 +89,7 @@ func redisLockHandler(rs RedisStore, timeout time.Duration, next http.HandlerFun
 		})
 		if err != nil {
 			ErrorLog("unable to obtain lock for resource, %s, %s", eid.GetEntityPair().CreateKey(), err)
-			http.Error(w, "Resource conflict", http.StatusConflict)
+			http.Error(w, "Resource is currently in use", http.StatusUnprocessableEntity)
 			return
 		}
 		defer lock.Release(ctx)
@@ -327,6 +327,16 @@ func disconnectHandler(disconnecter Disconnecter,
 
 		if skipped {
 			w.Header().Add("caas-verification", "skipped")
+		}
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func flushHandler(kv RedisStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		err := kv.redisClient.FlushAll(req.Context()).Err()
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
 		}
 		w.WriteHeader(http.StatusOK)
 	}
