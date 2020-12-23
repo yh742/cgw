@@ -217,12 +217,26 @@ func TestRefreshToken(t *testing.T) {
 		},
 		Token: "test.test",
 	}
-	redMock.ExpectSet("veh-1234", "test.test", 0).SetVal("")
-	defer redMock.ClearExpect()
-	writer := httptest.NewRecorder()
-	req := createTestRequest(t, nil, etr)
-	handler(writer, req)
-	assert.Equal(t, writer.Code, http.StatusOK)
+	t.Run("success_case", func(t *testing.T) {
+		// key exists and overwrite value
+		redMock.ExpectExists("veh-1234").SetVal(1)
+		redMock.ExpectSet("veh-1234", "test.test", 0).SetVal("")
+		defer redMock.ClearExpect()
+		writer := httptest.NewRecorder()
+		req := createTestRequest(t, nil, etr)
+		handler(writer, req)
+		assert.Equal(t, writer.Code, http.StatusOK)
+	})
+	t.Run("fail_case", func(t *testing.T) {
+		// key does not exists
+		redMock.ExpectExists("veh-1234").SetVal(0)
+		redMock.ExpectSet("veh-1234", "test.test", 0).SetVal("")
+		defer redMock.ClearExpect()
+		writer := httptest.NewRecorder()
+		req := createTestRequest(t, nil, etr)
+		handler(writer, req)
+		assert.Equal(t, writer.Code, http.StatusNotFound)
+	})
 }
 
 func TestValidateToken(t *testing.T) {
@@ -234,14 +248,8 @@ func TestValidateToken(t *testing.T) {
 		},
 		Token: "test.test",
 	}
-
-	// preset redis with a value to validate against
-	redMock.ExpectSet("veh-1234", "test.test", 0).SetVal("")
-	defer redMock.ClearExpect()
-	err := gw.kv.redisClient.Set(context.Background(), "veh-1234", "test.test", 0).Err()
-	assert.NilError(t, err)
-
-	t.Run("success_verify", func(t *testing.T) {
+	t.Run("success_case", func(t *testing.T) {
+		// key that exists
 		redMock.ExpectGet("veh-1234").SetVal("test.test")
 		defer redMock.ClearExpect()
 		writer := httptest.NewRecorder()
@@ -249,8 +257,18 @@ func TestValidateToken(t *testing.T) {
 		handler(writer, req)
 		assert.Equal(t, writer.Code, http.StatusOK)
 	})
-
-	t.Run("fail_verify", func(t *testing.T) {
+	t.Run("fail_auth_case", func(t *testing.T) {
+		// valiedate fails, key doesn't exist
+		writer := httptest.NewRecorder()
+		redMock.ExpectGet("sw-1234").SetVal("fail.test")
+		defer redMock.ClearExpect()
+		etr.Entity = "sw"
+		req := createTestRequest(t, nil, etr)
+		handler(writer, req)
+		assert.Equal(t, writer.Code, http.StatusForbidden)
+	})
+	t.Run("fail_exist_case", func(t *testing.T) {
+		// valiedate fails, key doesn't exist
 		writer := httptest.NewRecorder()
 		redMock.ExpectGet("sw-1234").RedisNil()
 		defer redMock.ClearExpect()
@@ -275,7 +293,10 @@ func TestCreateNewToken(t *testing.T) {
 	t.Run("success_case", func(t *testing.T) {
 		// set expectations
 		redMock.ExpectSet("veh-1234", "test.test", 0).SetVal("")
-		defer redMock.ClearExpect()
+		defer func() {
+			redMock.ClearExpect()
+			sm.ClearDB()
+		}()
 
 		// create request and run
 		writer := httptest.NewRecorder()
@@ -291,11 +312,13 @@ func TestCreateNewToken(t *testing.T) {
 	})
 
 	t.Run("conflict_case", func(t *testing.T) {
-		// create request and run
+		// create 2 requests and run after each other
 		writer := httptest.NewRecorder()
-		etr.Token = "repeated.test"
 		req := createTestRequest(t, nil, etr)
 		handler(writer, req)
+		req = createTestRequest(t, nil, etr)
+		handler(writer, req)
+		defer sm.ClearDB()
 
 		// check results
 		val := &ValidateTokenRequest{}

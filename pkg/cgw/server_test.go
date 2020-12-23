@@ -34,6 +34,7 @@ func TestStartServer(t *testing.T) {
 	assert.NilError(t, err)
 	go cgw.StartServer()
 	defer func() {
+		sm.ClearDB()
 		cgw.StopSignal <- struct{}{}
 	}()
 	t.Run("check_endpoints", func(t *testing.T) {
@@ -51,7 +52,7 @@ func TestStartServer(t *testing.T) {
 		redMock.Regexp().ExpectSetNX("lock:veh-1234", `[a-z1-9]*`, cgw.handlerTO).SetVal(true)
 		redMock.ExpectSet("veh-1234", "test.test", 0).SetVal("")
 		defer redMock.ClearExpect()
-		resp, err := http.Post("http://localhost:8080/ds/v1/token", "application/json", bytes.NewBuffer(jBytes))
+		resp, err := http.Post("http://localhost:8080/cgw/v1/token", "application/json", bytes.NewBuffer(jBytes))
 		assert.NilError(t, err)
 		assert.Equal(t, resp.StatusCode, http.StatusOK)
 
@@ -59,15 +60,16 @@ func TestStartServer(t *testing.T) {
 		redMock.Regexp().ExpectSetNX("lock:veh-1234", `[a-z1-9]*`, cgw.handlerTO).SetVal(true)
 		redMock.ExpectGet("veh-1234").SetVal("test.test")
 		defer redMock.ClearExpect()
-		resp, err = http.Post("http://localhost:8080/ds/v1/token/validate", "application/json", bytes.NewBuffer(jBytes))
+		resp, err = http.Post("http://localhost:8080/cgw/v1/token/validate", "application/json", bytes.NewBuffer(jBytes))
 		assert.NilError(t, err)
 		assert.Equal(t, resp.StatusCode, http.StatusOK)
 
-		// refresh credentials
+		// // refresh credentials
 		redMock.Regexp().ExpectSetNX("lock:veh-1234", `[a-z1-9]*`, cgw.handlerTO).SetVal(true)
+		redMock.ExpectExists("veh-1234").SetVal(1)
 		redMock.ExpectSet("veh-1234", "test.test", 0).SetVal("")
 		defer redMock.ClearExpect()
-		resp, err = http.Post("http://localhost:8080/ds/v1/token/refresh", "application/json", bytes.NewBuffer(jBytes))
+		resp, err = http.Post("http://localhost:8080/cgw/v1/token/refresh", "application/json", bytes.NewBuffer(jBytes))
 		assert.NilError(t, err)
 		assert.Equal(t, resp.StatusCode, http.StatusOK)
 
@@ -86,7 +88,7 @@ func TestStartServer(t *testing.T) {
 		redMock.ExpectGet("veh-1234").SetVal("test.test")
 		redMock.ExpectDel("veh-1234").SetVal(1)
 		defer redMock.ClearExpect()
-		resp, err = http.Post("http://localhost:8080/ds/v1/disconnect", "application/json", bytes.NewBuffer(jBytes))
+		resp, err = http.Post("http://localhost:8080/cgw/v1/disconnect", "application/json", bytes.NewBuffer(jBytes))
 		assert.NilError(t, err)
 		assert.Equal(t, resp.StatusCode, http.StatusOK)
 	})
@@ -103,7 +105,7 @@ func TestStartServer(t *testing.T) {
 		defer redMock.ClearExpect()
 		jBytes, err := json.Marshal(etr)
 		assert.NilError(t, err)
-		resp, err := http.Post("http://localhost:8080/ds/v1/token", "application/json", bytes.NewBuffer(jBytes))
+		resp, err := http.Post("http://localhost:8080/cgw/v1/token", "application/json", bytes.NewBuffer(jBytes))
 		assert.NilError(t, err)
 		assert.Equal(t, resp.StatusCode, http.StatusServiceUnavailable)
 		bytes, err := ioutil.ReadAll(resp.Body)

@@ -139,7 +139,17 @@ func refreshTokenHandler(rs RedisStore) http.HandlerFunc {
 		if !getReqFromContext(ctx, w, EntityTokenReq, tokeReq) {
 			return
 		}
-		err := rs.redisClient.Set(ctx, tokeReq.CreateKey(), tokeReq.Token, 0).Err()
+		exists, err := rs.redisClient.Exists(ctx, tokeReq.CreateKey()).Result()
+		if exists == 0 {
+			ErrorLog("token doesn't exist, %s", err)
+			http.Error(w, "Internal server error", http.StatusNotFound)
+			return
+		} else if err != nil {
+			ErrorLog("error occured getting token, %s", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		err = rs.redisClient.Set(ctx, tokeReq.CreateKey(), tokeReq.Token, 0).Err()
 		if err != nil {
 			ErrorLog("error occured setting token, %s", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)

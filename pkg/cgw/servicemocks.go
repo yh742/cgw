@@ -41,90 +41,70 @@ func RegistrationHandler(w http.ResponseWriter, req *http.Request) {
 // repeated.test => returns 409 and entityID of existing entityID
 // sleep.test => will sleep for 10 seconds
 // fail.test => return an error status
-func CreateTokenHashHandler(w http.ResponseWriter, req *http.Request) {
-	var vr ValidateTokenRequest
-	err := json.NewDecoder(req.Body).Decode(&vr)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		ErrorLog("%s", err.Error())
-		return
-	}
-	if IsEmpty(vr.Entity) || IsEmpty(vr.EntityID) || IsEmpty(vr.MEC) || IsEmpty(vr.Token) {
-		w.WriteHeader(http.StatusBadRequest)
-		ErrorLog("%+v", vr)
-		return
-	}
-	// return different responses based on token
-	if vr.Token == "repeated.test" {
-		jbytes, err := json.Marshal(EntityPair{
-			Entity:   "veh",
-			EntityID: "1234",
-		})
+func CreateTokenHashHandler(db map[string]EntityPair) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		var vr ValidateTokenRequest
+		err := json.NewDecoder(req.Body).Decode(&vr)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			ErrorLog("%s", err.Error())
 			return
 		}
-		w.WriteHeader(http.StatusConflict)
-		w.Write(jbytes)
-	} else if vr.Token == "sleep.test" {
-		time.Sleep(10 * time.Second)
-		return
-	} else if vr.Token == "fail.test" {
-		w.WriteHeader(http.StatusBadRequest)
+		if IsEmpty(vr.Entity) || IsEmpty(vr.EntityID) || IsEmpty(vr.MEC) || IsEmpty(vr.Token) {
+			w.WriteHeader(http.StatusBadRequest)
+			ErrorLog("%+v", vr)
+			return
+		}
+		// return different failure responses based on token
+		if vr.Token == "sleep.test" {
+			time.Sleep(10 * time.Second)
+			return
+		} else if vr.Token == "fail.test" {
+			w.WriteHeader(http.StatusBadRequest)
+		}
+		DebugLog("%+v", vr)
+		if val, ok := db[vr.Token]; ok {
+			// token creation request is repeated
+			jbytes, err := json.Marshal(val)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				ErrorLog("%s", err.Error())
+				return
+			}
+			w.WriteHeader(http.StatusConflict)
+			w.Write(jbytes)
+		} else {
+			// create new token
+			db[vr.Token] = vr.EntityPair
+			w.WriteHeader(http.StatusOK)
+		}
 	}
-	DebugLog("%+v", vr)
-	w.WriteHeader(http.StatusOK)
-}
-
-// ValidateHandler validates the token/entity/entityID
-// fail.test => return an error status
-func ValidateHandler(w http.ResponseWriter, req *http.Request) {
-	var vr ValidateTokenRequest
-	err := json.NewDecoder(req.Body).Decode(&vr)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		ErrorLog("%s", err.Error())
-		return
-	}
-	if IsEmpty(vr.Entity) || IsEmpty(vr.EntityID) || IsEmpty(vr.MEC) || IsEmpty(vr.Token) {
-		w.WriteHeader(http.StatusBadRequest)
-		ErrorLog("%+v", vr)
-		return
-	}
-	if vr.Token == "fail.test" {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("Bad Request"))
-	}
-	DebugLog("%+v", vr)
-	w.WriteHeader(http.StatusOK)
 }
 
 // DeleteEntityHandler delete the entity id from the service
-func DeleteEntityHandler(w http.ResponseWriter, req *http.Request) {
-	var der EntityTokenRequest
-	err := json.NewDecoder(req.Body).Decode(&der)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		ErrorLog("%s", err.Error())
-		return
+func DeleteEntityHandler(db map[string]EntityPair) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		var der EntityTokenRequest
+		err := json.NewDecoder(req.Body).Decode(&der)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			ErrorLog("%s", err.Error())
+			return
+		}
+		if !der.IsValid() {
+			w.WriteHeader(http.StatusBadRequest)
+			ErrorLog("%+v", der)
+			return
+		}
+		if _, ok := db[der.Token]; !ok {
+			w.WriteHeader(http.StatusNotFound)
+			ErrorLog("%+v", der)
+			return
+		}
+		delete(db, der.Token)
+		DebugLog("%+v", der)
+		w.WriteHeader(http.StatusOK)
 	}
-	if !der.IsValid() {
-		w.WriteHeader(http.StatusBadRequest)
-		ErrorLog("%+v", der)
-		return
-	}
-	if der.Token == "not.found.test" {
-		w.WriteHeader(http.StatusNotFound)
-		ErrorLog("%+v", der)
-		return
-	} else if der.Token == "fail.test" {
-		w.WriteHeader(http.StatusInternalServerError)
-		ErrorLog("%+v", der)
-		return
-	}
-	DebugLog("%+v", der)
-	w.WriteHeader(http.StatusOK)
 }
 
 // TestHandler returns input and outpu
@@ -147,6 +127,7 @@ type RequestEntry struct {
 
 // ServiceMocks represents all the services that ds can talk to
 type ServiceMocks struct {
+	db              map[string]EntityPair
 	requestsHistory []RequestEntry
 	port            string
 }
@@ -173,14 +154,14 @@ func (sm *ServiceMocks) LogRequestHandler(next http.HandlerFunc) http.HandlerFun
 func (sm *ServiceMocks) StartServer(port string, stop <-chan struct{}) {
 	// routing
 	sm.port = port
+	sm.db = map[string]EntityPair{}
 	router := mux.NewRouter()
 	// crs endpoints
 	router.HandleFunc("/crs/v1/registration", sm.LogRequestHandler(RegistrationHandler)).Methods("POST")
 
 	// caas endpoints
-	router.HandleFunc("/caas/v1/token/entity", sm.LogRequestHandler(CreateTokenHashHandler)).Methods("POST")
-	router.HandleFunc("/caas/v1/token/validate", sm.LogRequestHandler(ValidateHandler)).Methods("POST")
-	router.HandleFunc("/caas/v1/token/entity/delete", sm.LogRequestHandler(DeleteEntityHandler)).Methods("POST")
+	router.HandleFunc("/caas/v1/token/entity", sm.LogRequestHandler(CreateTokenHashHandler(sm.db))).Methods("POST")
+	router.HandleFunc("/caas/v1/token/entity/delete", sm.LogRequestHandler(DeleteEntityHandler(sm.db))).Methods("POST")
 	router.HandleFunc("/", sm.LogRequestHandler(TestHandler)).Methods("POST")
 	go func() {
 		err := http.ListenAndServe("0.0.0.0:"+port, router)
@@ -196,4 +177,9 @@ func (sm *ServiceMocks) StartServer(port string, stop <-chan struct{}) {
 // GetTail starts the server
 func (sm *ServiceMocks) GetTail(index int) RequestEntry {
 	return sm.requestsHistory[len(sm.requestsHistory)-index]
+}
+
+// ClearDB removes all entries in db
+func (sm *ServiceMocks) ClearDB() {
+	sm.db = map[string]EntityPair{}
 }
