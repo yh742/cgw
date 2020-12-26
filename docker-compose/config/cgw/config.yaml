@@ -6,6 +6,7 @@ maxHeaderBytes: 2000
 port: 8080
 upstreamReasonCode: [0x98, 0x87]
 tokenFile: /etc/cgw/token 
+flushEndpoint: /cgw/v1/flush
 caas:
   server: http://caas:9090
   createEndpoint: /caas/v1/token/entity
