@@ -30,7 +30,7 @@ type UserPassword struct {
 }
 
 // CRSCredentials creates auth scheme based on CRS entityID
-func CRSCredentials(url string, entity string, token string, crsCfg string) (UserPassword, error) {
+func CRSCredentials(url string, entity string, bearerToken string, crsCfg string) (UserPassword, error) {
 	// read configuration file
 	cFile, err := os.Open(crsCfg)
 	if err != nil {
@@ -46,7 +46,7 @@ func CRSCredentials(url string, entity string, token string, crsCfg string) (Use
 
 	// create request client to get entity ID from CRS
 	data, err := HTTPRequest(context.Background(), "POST", url,
-		map[string]string{"Authorization": "Bearer " + token}, nil, bytes.NewBuffer(fBytes))
+		map[string]string{"Authorization": "Bearer " + bearerToken}, nil, bytes.NewBuffer(fBytes))
 	if err != nil {
 		ErrorLog("CRS request failed, %v", err)
 		return UserPassword{}, errors.New("crs request failed")
@@ -68,7 +68,7 @@ func CRSCredentials(url string, entity string, token string, crsCfg string) (Use
 	// assign user and password
 	return UserPassword{
 		user:     entity + "-" + idStruct.ID,
-		password: token,
+		password: bearerToken,
 	}, nil
 }
 
