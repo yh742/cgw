@@ -23,7 +23,13 @@ type Config struct {
 	MQTT               MQTTSettings  `yaml:"mqtt"`
 	CAAS               CAASSettings  `yaml:"caas"`
 	Redis              RedisSettings `yaml:"redis"`
-	FlushEndpoint      string        `yaml:"flushEndpoint"`
+	DebugSettings      DebugSettings `yaml:"debug"`
+}
+
+// DebugSettings represents debug settings
+type DebugSettings struct {
+	FlushEndpoint string `yaml:"flushEndpoint"`
+	TokenEndpoint string `yaml:"tokenEndpoint"`
 }
 
 // MQTTSettings represents settings for MQTT

@@ -24,11 +24,11 @@ type CAASGateway struct {
 	token                 string
 	caasCreateURL         string
 	caasDeleteEntityIDURL string
-	flushEndpoint         string
 	upstreamReasonCodes   map[ReasonCode]bool
 	kv                    RedisStore
 	disconnecter          Disconnecter
 	mecID                 string
+	debugSettings         DebugSettings
 	StopSignal            chan struct{}
 }
 
@@ -113,15 +113,21 @@ func NewCAASGateway(cfgPath string, redis RedisStore, disconnecter Disconnecter)
 	} else {
 		caasGW.kv = redis
 	}
+	caasGW.debugSettings = cfg.DebugSettings
 
 	// stop signal
 	caasGW.StopSignal = make(chan struct{})
-
-	// create flush endpoint if not empty
-	if !IsEmpty(cfg.FlushEndpoint) {
-		caasGW.flushEndpoint = cfg.FlushEndpoint
-	}
 	return caasGW, nil
+}
+
+// GetToken reads token
+func (cgw *CAASGateway) GetToken() string {
+	return cgw.token
+}
+
+// SetToken writes token
+func (cgw *CAASGateway) SetToken(token string) {
+	cgw.token = token
 }
 
 // StartServer serves the ds service
@@ -131,11 +137,11 @@ func (cgw *CAASGateway) StartServer() {
 
 	// define routing scheme
 	router := mux.NewRouter()
+	createTokenHandle := createNewTokenHandler(cgw.kv, cgw.caasCreateURL, cgw.mecID, cgw.GetToken)
+	disconnectHandle := disconnectHandler(cgw.disconnecter, cgw.kv, cgw.caasDeleteEntityIDURL, cgw.upstreamReasonCodes, cgw.GetToken)
 	router.Handle("/cgw/v1/token",
 		http.TimeoutHandler(
-			jsonDecodeHandler(EntityTokenReq,
-				redisLockHandler(cgw.kv, cgw.handlerTO,
-					createNewTokenHandler(cgw.kv, cgw.caasCreateURL, cgw.mecID, cgw.token))),
+			jsonDecodeHandler(EntityTokenReq, redisLockHandler(cgw.kv, cgw.handlerTO, createTokenHandle)),
 			cgw.handlerTO, "Timed out processing request")).Methods("POST")
 	router.Handle("/cgw/v1/token/validate",
 		http.TimeoutHandler(
@@ -152,15 +158,24 @@ func (cgw *CAASGateway) StartServer() {
 	router.Handle("/cgw/v1/disconnect",
 		http.TimeoutHandler(
 			jsonDecodeHandler(DisconnectionReq,
-				redisLockHandler(cgw.kv, cgw.handlerTO,
-					disconnectHandler(
-						cgw.disconnecter, cgw.kv, cgw.caasDeleteEntityIDURL, cgw.upstreamReasonCodes, cgw.token))),
+				redisLockHandler(cgw.kv, cgw.handlerTO, disconnectHandle)),
 			cgw.handlerTO, "Timed out processing request")).Methods("POST")
 
-	if !IsEmpty(cgw.flushEndpoint) {
-		DebugLog("debug flush endpoint is enabled, %s", cgw.flushEndpoint)
-		router.Handle(cgw.flushEndpoint, http.TimeoutHandler(flushHandler(cgw.kv),
-			cgw.handlerTO, "Timed out processing request")).Methods("POST")
+	if cgw.debugSettings != (DebugSettings{}) {
+		flushURL := cgw.debugSettings.FlushEndpoint
+		tokenURL := cgw.debugSettings.TokenEndpoint
+
+		if !IsEmpty(flushURL) {
+			DebugLog("debug flush endpoint is enabled, %s", flushURL)
+			router.Handle(flushURL, http.TimeoutHandler(flushHandler(cgw.kv),
+				cgw.handlerTO, "Timed out processing request")).Methods("POST")
+		}
+
+		if !IsEmpty(tokenURL) {
+			DebugLog("debug token endpoint is enabled, %s", tokenURL)
+			router.Handle(tokenURL, http.TimeoutHandler(setTokenHandler(cgw.SetToken),
+				cgw.handlerTO, "Timed out processing request")).Methods("GET")
+		}
 	}
 
 	// create server instance

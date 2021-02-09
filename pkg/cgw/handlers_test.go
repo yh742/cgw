@@ -281,7 +281,7 @@ func TestValidateToken(t *testing.T) {
 
 func TestCreateNewToken(t *testing.T) {
 	// setup http handler
-	handler := createNewTokenHandler(gw.kv, gw.caasCreateURL, gw.mecID, gw.token)
+	handler := createNewTokenHandler(gw.kv, gw.caasCreateURL, gw.mecID, gw.GetToken)
 	etr := &EntityTokenRequest{
 		Token: "test.test",
 		EntityPair: EntityPair{
@@ -347,7 +347,7 @@ func TestDisconnectHandler(t *testing.T) {
 	handler := disconnectHandler(ds, gw.kv, gw.caasDeleteEntityIDURL, map[ReasonCode]bool{
 		Idle:          true,
 		NotAuthorized: true,
-	}, gw.token)
+	}, gw.GetToken)
 	dr := &DisconnectRequest{
 		EntityPair: EntityPair{
 			Entity:   "veh",
@@ -418,4 +418,24 @@ func TestDisconnectHandler(t *testing.T) {
 		handler(w, req)
 		assert.Equal(t, w.Body.String(), "Internal error occured while disconnecting\n")
 	})
+}
+
+func TestDebugFlush(t *testing.T) {
+	handler := flushHandler(gw.kv)
+	redMock.ExpectFlushAll().SetErr(redis.Nil)
+	w := &httptest.ResponseRecorder{}
+	req := createTestRequest(t, nil, nil)
+	handler(w, req)
+}
+
+func TestDebugSetToken(t *testing.T) {
+	fakeToken := "1111.1111"
+	handler := setTokenHandler(gw.SetToken)
+	w := &httptest.ResponseRecorder{}
+	req := createTestRequest(t, nil, nil)
+	q := req.URL.Query()
+	q.Add("token", fakeToken)
+	req.URL.RawQuery = q.Encode()
+	handler(w, req)
+	assert.Equal(t, gw.token, fakeToken)
 }
