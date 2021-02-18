@@ -7,14 +7,14 @@ type ReasonCode byte
 
 // ReasonCode enumerations
 const (
-	Reauthenticate ReasonCode = 0x19
-	Expiration     ReasonCode = 0x0A
+	Reauthenticate ReasonCode = 0x8C
+	Expiration     ReasonCode = 0xA0
 	Handover       ReasonCode = 0x9C
 
 	// upstream codes
 	RateTooHigh   ReasonCode = 0x96
-	NotAuthorized ReasonCode = 0x87
-	Idle          ReasonCode = 0x98
+	NotAuthorized ReasonCode = 0x98
+	Idle          ReasonCode = 0x87
 )
 
 // EntityIdentifier is struct for data that contains entitypair

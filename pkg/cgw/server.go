@@ -29,6 +29,7 @@ type CAASGateway struct {
 	disconnecter          Disconnecter
 	mecID                 string
 	debugSettings         DebugSettings
+	requestLog            []interface{}
 	StopSignal            chan struct{}
 }
 
@@ -114,10 +115,36 @@ func NewCAASGateway(cfgPath string, redis RedisStore, disconnecter Disconnecter)
 		caasGW.kv = redis
 	}
 	caasGW.debugSettings = cfg.DebugSettings
+	if caasGW.debugSettings.DebugLog {
+		caasGW.requestLog = make([]interface{}, 0)
+	}
 
 	// stop signal
 	caasGW.StopSignal = make(chan struct{})
 	return caasGW, nil
+}
+
+// AppendLog adds log to log history
+func (cgw *CAASGateway) AppendLog(key string, data interface{}) {
+	// append to request log
+	if cgw.debugSettings.DebugLog {
+		cgw.requestLog = append(cgw.requestLog, map[string]interface{}{
+			key: data,
+		})
+	}
+}
+
+// ClearLogs erases logs
+func (cgw *CAASGateway) ClearLogs() {
+	if cgw.debugSettings.DebugLog {
+		cgw.requestLog = make([]interface{}, 0)
+	}
+}
+
+// GetLogs retrieves logs from log history
+func (cgw *CAASGateway) GetLogs() []interface{} {
+	// append to request log
+	return cgw.requestLog
 }
 
 // GetToken reads token
@@ -130,6 +157,16 @@ func (cgw *CAASGateway) SetToken(token string) {
 	cgw.token = token
 }
 
+// GetMEC reads MEC
+func (cgw *CAASGateway) GetMEC() string {
+	return cgw.mecID
+}
+
+// SetMEC writes to the MEC field
+func (cgw *CAASGateway) SetMEC(mec string) {
+	cgw.mecID = mec
+}
+
 // StartServer serves the ds service
 func (cgw *CAASGateway) StartServer() {
 	httpServerExitDone := &sync.WaitGroup{}
@@ -137,33 +174,40 @@ func (cgw *CAASGateway) StartServer() {
 
 	// define routing scheme
 	router := mux.NewRouter()
-	createTokenHandle := createNewTokenHandler(cgw.kv, cgw.caasCreateURL, cgw.mecID, cgw.GetToken)
-	disconnectHandle := disconnectHandler(cgw.disconnecter, cgw.kv, cgw.caasDeleteEntityIDURL, cgw.upstreamReasonCodes, cgw.GetToken)
+	createTokenHandle := createNewTokenHandler(cgw.kv, cgw.caasCreateURL, cgw.GetMEC, cgw.GetToken)
+	disconnectHandle := disconnectHandler(cgw.disconnecter, cgw.kv,
+		cgw.caasDeleteEntityIDURL, cgw.upstreamReasonCodes, cgw.GetMEC, cgw.GetToken)
+
 	router.Handle("/cgw/v1/token",
 		http.TimeoutHandler(
-			jsonDecodeHandler(EntityTokenReq, redisLockHandler(cgw.kv, cgw.handlerTO, createTokenHandle)),
+			jsonDecodeHandler(EntityTokenReq, redisLockHandler(cgw.kv, cgw.handlerTO, createTokenHandle), cgw.AppendLog),
 			cgw.handlerTO, "Timed out processing request")).Methods("POST")
+
 	router.Handle("/cgw/v1/token/validate",
 		http.TimeoutHandler(
 			jsonDecodeHandler(EntityTokenReq,
 				redisLockHandler(cgw.kv, cgw.handlerTO,
-					validateTokenHandler(cgw.kv))),
+					validateTokenHandler(cgw.kv)), cgw.AppendLog),
 			cgw.handlerTO, "Timed out processing request")).Methods("POST")
+
 	router.Handle("/cgw/v1/token/refresh",
 		http.TimeoutHandler(
 			jsonDecodeHandler(EntityTokenReq,
 				redisLockHandler(cgw.kv, cgw.handlerTO,
-					refreshTokenHandler(cgw.kv))),
+					refreshTokenHandler(cgw.kv)), cgw.AppendLog),
 			cgw.handlerTO, "Timed out processing request")).Methods("POST")
+
 	router.Handle("/cgw/v1/disconnect",
 		http.TimeoutHandler(
 			jsonDecodeHandler(DisconnectionReq,
-				redisLockHandler(cgw.kv, cgw.handlerTO, disconnectHandle)),
+				redisLockHandler(cgw.kv, cgw.handlerTO, disconnectHandle), cgw.AppendLog),
 			cgw.handlerTO, "Timed out processing request")).Methods("POST")
 
 	if cgw.debugSettings != (DebugSettings{}) {
 		flushURL := cgw.debugSettings.FlushEndpoint
 		tokenURL := cgw.debugSettings.TokenEndpoint
+		mecURL := cgw.debugSettings.MECEndpoint
+		reqURL := cgw.debugSettings.ReqLogEndpoint
 
 		if !IsEmpty(flushURL) {
 			DebugLog("debug flush endpoint is enabled, %s", flushURL)
@@ -175,6 +219,20 @@ func (cgw *CAASGateway) StartServer() {
 			DebugLog("debug token endpoint is enabled, %s", tokenURL)
 			router.Handle(tokenURL, http.TimeoutHandler(setTokenHandler(cgw.SetToken),
 				cgw.handlerTO, "Timed out processing request")).Methods("GET")
+		}
+
+		if !IsEmpty(mecURL) {
+			DebugLog("debug mec endpoint is enabled, %s", mecURL)
+			router.Handle(mecURL, http.TimeoutHandler(setMECHandler(cgw.SetMEC),
+				cgw.handlerTO, "Timed out processing request")).Methods("GET")
+		}
+
+		if !IsEmpty(reqURL) {
+			DebugLog("debug disconnection info endpoint is enabled, %s", reqURL)
+			router.Handle(reqURL, http.TimeoutHandler(getReqLogHandler(cgw.GetLogs),
+				cgw.handlerTO, "Timed out processing request")).Methods("GET")
+			router.Handle(reqURL, http.TimeoutHandler(delReqLogHandler(cgw.ClearLogs),
+				cgw.handlerTO, "Timed out processing request")).Methods("DELETE")
 		}
 	}
 

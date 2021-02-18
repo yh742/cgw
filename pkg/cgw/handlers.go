@@ -13,8 +13,6 @@ import (
 
 type ctxKey int
 type requestType int
-type readToken func() string
-type writeToken func(string)
 
 // Type of requests that we will see from client
 const (
@@ -28,7 +26,7 @@ const (
 )
 
 // jsonDecoderHandler help decode handler and stuffs it into the context
-func jsonDecodeHandler(reqType requestType, next http.HandlerFunc) http.HandlerFunc {
+func jsonDecodeHandler(reqType requestType, next http.HandlerFunc, appendLog appendLogCb) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// deocde json based on the request type specified
 		var decodedReq interface{}
@@ -58,6 +56,9 @@ func jsonDecodeHandler(reqType requestType, next http.HandlerFunc) http.HandlerF
 			http.Error(w, "Bad Request", http.StatusBadRequest)
 			return
 		}
+
+		// append to log
+		appendLog(req.RequestURI, decodedReq)
 
 		// put decoded JSON as part of context
 		newCtx := context.WithValue(req.Context(), DecodedJSON, decodedReq)
@@ -141,6 +142,7 @@ func refreshTokenHandler(rs RedisStore) http.HandlerFunc {
 		if !getReqFromContext(ctx, w, EntityTokenReq, tokeReq) {
 			return
 		}
+		DebugLog("refresh token handler called, %v", tokeReq)
 		exists, err := rs.redisClient.Exists(ctx, tokeReq.CreateKey()).Result()
 		if exists == 0 {
 			ErrorLog("token doesn't exist, %s", err)
@@ -193,7 +195,7 @@ func validateTokenHandler(rs RedisStore) http.HandlerFunc {
 // returns 409 if there's conflict
 // returns 4xx for other errors
 func createNewTokenHandler(rs RedisStore,
-	endpoint string, mecID string, bearerToken readToken) http.HandlerFunc {
+	endpoint string, mecID readMECCb, bearerToken readTokenCb) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// the entity ID send to us is the new entity ID that crs created
 		// it will never be populated in cache, need to always check with caas first
@@ -205,7 +207,7 @@ func createNewTokenHandler(rs RedisStore,
 		}
 		valReq := ValidateTokenRequest{
 			EntityTokenRequest: *tokeReq,
-			MEC:                mecID,
+			MEC:                mecID(),
 		}
 		jsBytes, err := json.Marshal(valReq)
 		if err != nil {
@@ -252,6 +254,7 @@ func createNewTokenHandler(rs RedisStore,
 			w.Write(resp.body)
 		} else {
 			ErrorLog("error response from caas %d", resp.status)
+			DebugLog("body response from caas %s", resp.body)
 			http.Error(w, "Error occured upstream", resp.status)
 		}
 	}
@@ -260,7 +263,7 @@ func createNewTokenHandler(rs RedisStore,
 // disconnectHandler disconnects the
 func disconnectHandler(disconnecter Disconnecter,
 	rs RedisStore, deleteIDEndpoint string,
-	upstreamReasonCodes map[ReasonCode]bool, bearerToken readToken) http.HandlerFunc {
+	upstreamReasonCodes map[ReasonCode]bool, mecID readMECCb, bearerToken readTokenCb) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// create context and try to disconnect first
 		ctx := req.Context()
@@ -284,11 +287,15 @@ func disconnectHandler(disconnecter Disconnecter,
 		skipped := false
 		// (2) if needed, delete
 		if _, ok := upstreamReasonCodes[disReq.ReasonCode]; ok {
-			tokReq := EntityTokenRequest{
-				EntityPair: disReq.EntityPair,
-				Token:      token,
+			valReq := ValidateTokenRequest{
+				EntityTokenRequest: EntityTokenRequest{
+					EntityPair: disReq.EntityPair,
+					Token:      token,
+				},
+				MEC: mecID(),
 			}
-			jsBytes, err := json.Marshal(tokReq)
+			jsBytes, err := json.Marshal(valReq)
+			DebugLog("sending to caas: %s", jsBytes)
 			resp, err := HTTPRequest(ctx, "POST", deleteIDEndpoint,
 				map[string]string{
 					"Content-Type":  "application/json",
@@ -304,7 +311,7 @@ func disconnectHandler(disconnecter Disconnecter,
 				ErrorLog("unable to find entityid, got back %d from caas, %s",
 					resp.status, resp.body)
 				skipped = true
-			} else if resp.status != http.StatusOK {
+			} else if resp.status != http.StatusNoContent {
 				ErrorLog("bad response from caas, got back %d from caas, %s",
 					resp.status, resp.body)
 				http.Error(w, "Unable to make request to caas", http.StatusInternalServerError)
@@ -330,24 +337,6 @@ func disconnectHandler(disconnecter Disconnecter,
 		if skipped {
 			w.Header().Add("caas-verification", "skipped")
 		}
-		w.WriteHeader(http.StatusOK)
-	}
-}
-
-func flushHandler(kv RedisStore) http.HandlerFunc {
-	return func(w http.ResponseWriter, req *http.Request) {
-		err := kv.redisClient.FlushAll(req.Context()).Err()
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-		}
-		w.WriteHeader(http.StatusOK)
-	}
-}
-
-func setTokenHandler(setToken writeToken) http.HandlerFunc {
-	return func(w http.ResponseWriter, req *http.Request) {
-		token := req.URL.Query().Get("token")
-		setToken(token)
 		w.WriteHeader(http.StatusOK)
 	}
 }

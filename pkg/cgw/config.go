@@ -28,8 +28,11 @@ type Config struct {
 
 // DebugSettings represents debug settings
 type DebugSettings struct {
-	FlushEndpoint string `yaml:"flushEndpoint"`
-	TokenEndpoint string `yaml:"tokenEndpoint"`
+	FlushEndpoint  string `yaml:"flushEndpoint"`
+	TokenEndpoint  string `yaml:"tokenEndpoint"`
+	MECEndpoint    string `yaml:"mecEndpoint"`
+	ReqLogEndpoint string `yaml:"reqLogEndpoint"`
+	DebugLog       bool   `yaml:"debugLog"`
 }
 
 // MQTTSettings represents settings for MQTT
