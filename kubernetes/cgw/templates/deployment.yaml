@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cgw
+spec:
+  replicas: {{ .Values.cgw.replicas }}
+  selector:
+    matchLabels:
+      app: cgw
+  template: 
+    metadata: 
+      labels:
+        app: cgw
+        {{- if .Values.cgw.elasticLogging }}
+        logging: elastic
+        {{- end }}
+    spec:
+      initContainers:
+        - name: wait-for-redis
+          image: redis:6.2.0
+          command: ["bash", "-c", {{ printf "until timeout 3 redis-cli -h %s-master --user admin --pass admin ping | grep -i pong; do sleep 2; done;" .Values.redis.fullnameOverride }}]
+        - name: set-user-redis
+          image: redis:6.2.0
+          command: ["bash", "-c", {{ printf "until timeout 3 redis-cli -h %s-master --user admin --pass admin ACL SETUSER %s on +@all ~* >%s; do sleep 3; done;" .Values.redis.fullnameOverride .Values.cgw.redis.user .Values.cgw.redis.password }}]
+        - name: del-user-redis
+          image: redis:6.2.0
+          command: ["bash", "-c", {{ printf "until timeout 3 redis-cli -h %s-master --user admin --pass admin ACL DELUSER %s;  do sleep 3; done;" .Values.redis.fullnameOverride .Values.cgw.redis.user }}]
+      containers:
+        - name: cgw
+          image: yhseanhsu/cgw
+          volumeMounts:
+          - name: secrets
+            mountPath: /etc/cgw/secrets
+          - name: config
+            mountPath: /etc/cgw
+          resources:
+            requests: 
+              cpu: {{ .Values.cgw.resources.requests.cpu }}
+              memory: {{ .Values.cgw.resources.requests.memory }}
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          imagePullPolicy: Always
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.cgw.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      {{- if .Values.nodeType }}
+      nodeSelector: 
+        type: {{ .Values.nodeType }}
+      {{- end }}
+      volumes:
+      - name: secrets
+        secret:
+          secretName: cgw-secrets
+      - name: config
+        configMap:
+          name: cgw-configmap

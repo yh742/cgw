@@ -54,6 +54,9 @@ services:
       - type: bind
         source: ./config/redis/redis.conf
         target: /usr/local/etc/redis.conf
+      - type: bind
+        source: /tmp
+        target: /data 
 
   mosquitto:
     image: eclipse-mosquitto

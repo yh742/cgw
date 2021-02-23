@@ -1,0 +1,61 @@
+cgw:
+  resources:
+    requests:
+      cpu: 500m
+      memory: 128Mi
+  elasticLogging: false
+  replicas: 1
+  mecID: bb
+  readTimeout: 1000
+  writeTimeout: 5000
+  handlerTimeout: 4000
+  maxHeaderBytes: 2000
+  port: 8080
+  upstreamReasonCode: [0x98, 0x87]
+  caas:
+    tokenFile: /etc/cgw/secrets/token 
+    token: 123123124gug2312
+    server: http://caas:9090
+    createEndpoint: /caas/v1/token/entity
+    deleteEndpoint: /caas/v1/token/entity/delete
+  redis:
+    user: vzmode
+    password: cgwvzmodeadmin
+    server: redis:6379
+    authFile: /etc/cgw/secrets/redisAuth
+  mqtt:
+    user: vzmode
+    password: admin
+    server: mosquitto:1883
+    authType: 1
+    successCode: 0x03
+    authFile: /etc/cgw/secrets/mqttAuth
+  debug:
+    flushEndpoint: /cgw/v1/debug/flush
+    tokenEndpoint: /cgw/v1/debug/token
+    mecEndpoint: /cgw/v1/debug/mec
+    reqLogEndpoint: /cgw/v1/debug/requests
+    debugLog: true
+
+redis:
+  fullnameOverride: cgw-redis
+  cluster:
+    enabled: false
+    slaveCount: 0
+  master:
+    persistence:
+      enabled: false
+  configmap: |-
+    bind 0.0.0.0
+    protected-mode yes
+    port 6379
+    tcp-backlog 511
+    timeout 0
+    tcp-keepalive 300
+    daemonize no
+    supervised no
+    pidfile /var/run/redis_6379.pid
+    loglevel debug
+    logfile ""
+    databases 1
+    user admin on +@all ~* >admin
